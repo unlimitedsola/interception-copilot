@@ -7,7 +7,7 @@
 //! This example will only work on Windows systems.
 
 use interception_copilot::{
-    Context, InterceptionFilter, KeyStroke, Stroke, is_keyboard_device, keyboard,
+    Context, InterceptionFilter, is_keyboard_device,
 };
 
 #[cfg(windows)]
@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // Send the strokes back so they still work normally
                         context.send(device, &strokes)?;
                     }
-                    Err(e) => eprintln!("Error receiving strokes: {}", e),
+                    Err(e) => eprintln!("Error receiving strokes: {e}"),
                 }
             }
         }

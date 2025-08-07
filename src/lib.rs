@@ -290,7 +290,7 @@ struct DeviceContext {
 
 impl DeviceContext {
     fn new(device_index: usize) -> Result<Self, InterceptionError> {
-        let device_name = format!("\\\\.\\interception{:02}", device_index);
+        let device_name = format!("\\\\.\\interception{device_index:02}");
         let device_name_c =
             CString::new(device_name).map_err(|_| InterceptionError::InvalidPath)?;
 
@@ -357,7 +357,7 @@ impl Drop for DeviceContext {
             if self.handle != INVALID_HANDLE_VALUE {
                 CloseHandle(self.handle);
             }
-            if self.unempty_event != ptr::null_mut() {
+            if self.unempty_event.is_null() {
                 CloseHandle(self.unempty_event);
             }
         }
@@ -389,13 +389,13 @@ impl std::fmt::Display for InterceptionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InterceptionError::CreateFile(code) => {
-                write!(f, "Failed to create device file, error code: {}", code)
+                write!(f, "Failed to create device file, error code: {code}")
             }
             InterceptionError::CreateEvent(code) => {
-                write!(f, "Failed to create event, error code: {}", code)
+                write!(f, "Failed to create event, error code: {code}")
             }
             InterceptionError::DeviceIoControl(code) => {
-                write!(f, "Device I/O control failed, error code: {}", code)
+                write!(f, "Device I/O control failed, error code: {code}")
             }
             InterceptionError::InvalidPath => {
                 write!(f, "Invalid device path or string conversion error")
@@ -407,8 +407,7 @@ impl std::fmt::Display for InterceptionError {
             InterceptionError::MemoryAllocation => write!(f, "Memory allocation failed"),
             InterceptionError::WaitFailed(code) => write!(
                 f,
-                "Wait operation failed or timed out, error code: {}",
-                code
+                "Wait operation failed or timed out, error code: {code}"
             ),
         }
     }
