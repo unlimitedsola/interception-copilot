@@ -104,69 +104,89 @@ pub const fn mouse(index: usize) -> Device {
     (INTERCEPTION_MAX_KEYBOARD as i32) + (index as i32) + 1
 }
 
-/// Keyboard key states
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyState {
+/// Keyboard key states - bitflags that can be combined
+#[allow(non_snake_case)]
+pub mod KeyState {
+    use std::ffi::c_int;
+
     /// Key down event
-    Down = 0x00,
+    pub const DOWN: c_int = 0x00;
     /// Key up event
-    Up = 0x01,
+    pub const UP: c_int = 0x01;
     /// Extended key code (E0 prefix)
-    E0 = 0x02,
+    pub const E0: c_int = 0x02;
     /// Extended key code (E1 prefix)
-    E1 = 0x04,
+    pub const E1: c_int = 0x04;
     /// Terminal Services LED update
-    TermSrvSetLed = 0x08,
+    pub const TERMSRV_SET_LED: c_int = 0x08;
     /// Terminal Services shadow
-    TermSrvShadow = 0x10,
+    pub const TERMSRV_SHADOW: c_int = 0x10;
     /// Terminal Services virtual key packet
-    TermSrvVkPacket = 0x20,
+    pub const TERMSRV_VKPACKET: c_int = 0x20;
 }
 
-/// Mouse button and wheel states
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MouseState {
+/// Mouse button and wheel states - bitflags that can be combined
+#[allow(non_snake_case)]
+pub mod MouseState {
+    use std::ffi::c_int;
+
     /// Left mouse button down
-    LeftButtonDown = 0x001,
+    pub const LEFT_BUTTON_DOWN: c_int = 0x001;
     /// Left mouse button up
-    LeftButtonUp = 0x002,
+    pub const LEFT_BUTTON_UP: c_int = 0x002;
     /// Right mouse button down
-    RightButtonDown = 0x004,
+    pub const RIGHT_BUTTON_DOWN: c_int = 0x004;
     /// Right mouse button up
-    RightButtonUp = 0x008,
+    pub const RIGHT_BUTTON_UP: c_int = 0x008;
     /// Middle mouse button down
-    MiddleButtonDown = 0x010,
+    pub const MIDDLE_BUTTON_DOWN: c_int = 0x010;
     /// Middle mouse button up
-    MiddleButtonUp = 0x020,
+    pub const MIDDLE_BUTTON_UP: c_int = 0x020;
+
+    /// Mouse button 1 down (alias for left button)
+    pub const BUTTON_1_DOWN: c_int = LEFT_BUTTON_DOWN;
+    /// Mouse button 1 up (alias for left button)
+    pub const BUTTON_1_UP: c_int = LEFT_BUTTON_UP;
+    /// Mouse button 2 down (alias for right button)
+    pub const BUTTON_2_DOWN: c_int = RIGHT_BUTTON_DOWN;
+    /// Mouse button 2 up (alias for right button)
+    pub const BUTTON_2_UP: c_int = RIGHT_BUTTON_UP;
+    /// Mouse button 3 down (alias for middle button)
+    pub const BUTTON_3_DOWN: c_int = MIDDLE_BUTTON_DOWN;
+    /// Mouse button 3 up (alias for middle button)
+    pub const BUTTON_3_UP: c_int = MIDDLE_BUTTON_UP;
+
     /// Mouse button 4 down
-    Button4Down = 0x040,
+    pub const BUTTON_4_DOWN: c_int = 0x040;
     /// Mouse button 4 up
-    Button4Up = 0x080,
+    pub const BUTTON_4_UP: c_int = 0x080;
     /// Mouse button 5 down
-    Button5Down = 0x100,
+    pub const BUTTON_5_DOWN: c_int = 0x100;
     /// Mouse button 5 up
-    Button5Up = 0x200,
+    pub const BUTTON_5_UP: c_int = 0x200;
     /// Mouse wheel scroll
-    Wheel = 0x400,
+    pub const WHEEL: c_int = 0x400;
     /// Mouse horizontal wheel scroll
-    HWheel = 0x800,
+    pub const HWHEEL: c_int = 0x800;
 }
 
-/// Mouse movement flags
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MouseFlag {
+/// Mouse movement flags - bitflags that can be combined
+#[allow(non_snake_case)]
+pub mod MouseFlag {
+    use std::ffi::c_int;
+
     /// Relative movement
-    MoveRelative = 0x000,
+    pub const MOVE_RELATIVE: c_int = 0x000;
     /// Absolute movement
-    MoveAbsolute = 0x001,
+    pub const MOVE_ABSOLUTE: c_int = 0x001;
     /// Virtual desktop coordinates
-    VirtualDesktop = 0x002,
+    pub const VIRTUAL_DESKTOP: c_int = 0x002;
     /// Mouse attributes changed
-    AttributesChanged = 0x004,
+    pub const ATTRIBUTES_CHANGED: c_int = 0x004;
     /// Don't coalesce mouse movements
-    MoveNoCoalesce = 0x008,
+    pub const MOVE_NOCOALESCE: c_int = 0x008;
     /// Terminal Services source shadow
-    TermSrvSrcShadow = 0x100,
+    pub const TERMSRV_SRC_SHADOW: c_int = 0x100;
 }
 
 /// Interception filter constants for keyboard and mouse events
@@ -958,12 +978,12 @@ impl KeyStroke {
 
     /// Create a key down stroke
     pub fn down(code: u16) -> Self {
-        Self::new(code, KeyState::Down as u16)
+        Self::new(code, KeyState::DOWN as u16)
     }
 
     /// Create a key up stroke
     pub fn up(code: u16) -> Self {
-        Self::new(code, KeyState::Up as u16)
+        Self::new(code, KeyState::UP as u16)
     }
 }
 
@@ -984,7 +1004,7 @@ impl MouseStroke {
     pub fn move_to(x: i32, y: i32) -> Self {
         Self {
             state: 0,
-            flags: MouseFlag::MoveAbsolute as u16,
+            flags: MouseFlag::MOVE_ABSOLUTE as u16,
             rolling: 0,
             x,
             y,
@@ -993,7 +1013,7 @@ impl MouseStroke {
     }
 
     /// Create a mouse button down stroke
-    pub fn button_down(button: MouseState) -> Self {
+    pub fn button_down(button: std::ffi::c_int) -> Self {
         Self {
             state: button as u16,
             flags: 0,
@@ -1005,7 +1025,7 @@ impl MouseStroke {
     }
 
     /// Create a mouse button up stroke
-    pub fn button_up(button: MouseState) -> Self {
+    pub fn button_up(button: std::ffi::c_int) -> Self {
         Self {
             state: button as u16,
             flags: 0,
@@ -1019,7 +1039,7 @@ impl MouseStroke {
     /// Create a mouse wheel stroke
     pub fn wheel(delta: i16) -> Self {
         Self {
-            state: MouseState::Wheel as u16,
+            state: MouseState::WHEEL as u16,
             flags: 0,
             rolling: delta,
             x: 0,
@@ -1080,16 +1100,16 @@ mod tests {
     fn test_stroke_creation() {
         let key_stroke = KeyStroke::down(0x41); // 'A' key
         assert_eq!(key_stroke.code, 0x41);
-        assert_eq!(key_stroke.state, KeyState::Down as u16);
+        assert_eq!(key_stroke.state, KeyState::DOWN as u16);
 
         let mouse_stroke = MouseStroke::move_to(100, 200);
         assert_eq!(mouse_stroke.x, 100);
         assert_eq!(mouse_stroke.y, 200);
-        assert_eq!(mouse_stroke.flags, MouseFlag::MoveAbsolute as u16);
+        assert_eq!(mouse_stroke.flags, MouseFlag::MOVE_ABSOLUTE as u16);
 
         let wheel_stroke = MouseStroke::wheel(120);
         assert_eq!(wheel_stroke.rolling, 120);
-        assert_eq!(wheel_stroke.state, MouseState::Wheel as u16);
+        assert_eq!(wheel_stroke.state, MouseState::WHEEL as u16);
     }
 
     #[test]
