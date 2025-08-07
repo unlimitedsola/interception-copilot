@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // Send the strokes back so they still work normally
                         context.send(device, &strokes)?;
                     }
-                    Err(e) => eprintln!("Error receiving strokes: {}", e),
+                    Err(e) => eprintln!("Error receiving strokes: {e}"),
                 }
             }
         } else {
