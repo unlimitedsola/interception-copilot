@@ -6,9 +6,7 @@
 //! **Note**: This requires the Interception driver to be installed on Windows.
 //! This example will only work on Windows systems.
 
-use interception_copilot::{
-    Context, InterceptionFilter, is_keyboard_device,
-};
+use interception_copilot::{Context, InterceptionFilter, is_keyboard_device};
 
 #[cfg(windows)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {

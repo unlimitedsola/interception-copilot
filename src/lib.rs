@@ -35,10 +35,20 @@ use std::mem;
 use std::ptr;
 use std::slice;
 use windows_sys::Win32::{
-    Foundation::*,
-    Storage::FileSystem::*,
-    System::{IO::*, Memory::*, Threading::*},
+    Foundation::{
+        CloseHandle, FALSE, GetLastError, HANDLE, INVALID_HANDLE_VALUE, TRUE, WAIT_FAILED,
+        WAIT_OBJECT_0, WAIT_TIMEOUT,
+    },
+    Storage::FileSystem::{CreateFileA, OPEN_EXISTING},
+    System::{
+        IO::DeviceIoControl,
+        Memory::{GetProcessHeap, HeapAlloc, HeapFree},
+        Threading::{CreateEventA, INFINITE, WaitForMultipleObjects},
+    },
 };
+
+// Add GENERIC_READ constant since it seems to be missing from windows-sys
+const GENERIC_READ: u32 = 0x80000000;
 
 // Constants from the original C header
 const INTERCEPTION_MAX_KEYBOARD: usize = 10;
@@ -169,8 +179,8 @@ pub mod InterceptionFilter {
     /// Filter all keyboard events
     pub const KEY_ALL: Filter = 0xFFFF;
     /// Filter key down events
-    pub const KEY_DOWN: Filter = 0x01 << 1;
-    /// Filter key up events
+    pub const KEY_DOWN: Filter = 0x01; // INTERCEPTION_KEY_UP (note: apparent typo in C header)
+    /// Filter key up events  
     pub const KEY_UP: Filter = 0x01 << 1;
     /// Filter E0 extended keys
     pub const KEY_E0: Filter = 0x02 << 1;
@@ -357,7 +367,7 @@ impl Drop for DeviceContext {
             if self.handle != INVALID_HANDLE_VALUE {
                 CloseHandle(self.handle);
             }
-            if self.unempty_event.is_null() {
+            if !self.unempty_event.is_null() {
                 CloseHandle(self.unempty_event);
             }
         }
@@ -405,10 +415,9 @@ impl std::fmt::Display for InterceptionError {
                 write!(f, "Interception context is not initialized")
             }
             InterceptionError::MemoryAllocation => write!(f, "Memory allocation failed"),
-            InterceptionError::WaitFailed(code) => write!(
-                f,
-                "Wait operation failed or timed out, error code: {code}"
-            ),
+            InterceptionError::WaitFailed(code) => {
+                write!(f, "Wait operation failed or timed out, error code: {code}")
+            }
         }
     }
 }
@@ -620,7 +629,7 @@ impl Context {
 
             match result {
                 WAIT_FAILED | WAIT_TIMEOUT => None,
-                index if index >= WAIT_OBJECT_0 => {
+                index => {
                     let wait_index = (index - WAIT_OBJECT_0) as usize;
                     if wait_index < device_mapping.len() {
                         Some((device_mapping[wait_index] + 1) as Device)
@@ -628,7 +637,6 @@ impl Context {
                         None
                     }
                 }
-                _ => None,
             }
         }
     }
@@ -1042,6 +1050,7 @@ impl From<MouseStroke> for Stroke {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::mem::{align_of, size_of};
 
     #[test]
     fn test_device_functions() {
@@ -1089,6 +1098,83 @@ mod tests {
         assert_eq!(InterceptionFilter::KEY_ALL, 0xFFFF);
         assert_eq!(InterceptionFilter::MOUSE_NONE, 0x0000);
         assert_eq!(InterceptionFilter::MOUSE_ALL, 0xFFFF);
+        // Test corrected filter values to match C header
+        assert_eq!(InterceptionFilter::KEY_DOWN, 0x01); // INTERCEPTION_KEY_UP (C header typo)
+        assert_eq!(InterceptionFilter::KEY_UP, 0x02); // INTERCEPTION_KEY_UP << 1
+        assert_eq!(InterceptionFilter::KEY_E0, 0x04); // INTERCEPTION_KEY_E0 << 1
+        assert_eq!(InterceptionFilter::KEY_E1, 0x08); // INTERCEPTION_KEY_E1 << 1
+    }
+
+    /// Test that our Rust structs match the exact memory layout of C structs
+    #[test]
+    fn test_c_struct_compatibility() {
+        // Test KeyStroke matches InterceptionKeyStroke
+        // C struct: { unsigned short code; unsigned short state; unsigned int information; }
+        assert_eq!(size_of::<KeyStroke>(), 8); // 2 + 2 + 4 = 8 bytes
+        assert_eq!(align_of::<KeyStroke>(), 4); // Aligned to u32
+
+        // Test MouseStroke matches InterceptionMouseStroke
+        // C struct: { unsigned short state; unsigned short flags; short rolling; int x; int y; unsigned int information; }
+        assert_eq!(size_of::<MouseStroke>(), 24); // 2 + 2 + 2 + 2(pad) + 4 + 4 + 4 = 20 bytes + 4 padding = 24
+        assert_eq!(align_of::<MouseStroke>(), 4); // Aligned to i32
+
+        // Test that Stroke union has correct size (should be at least as large as MouseStroke)
+        assert_eq!(size_of::<Stroke>(), 24);
+        assert_eq!(align_of::<Stroke>(), 4);
+
+        // Verify field offsets match C struct layout
+        let key_stroke = KeyStroke::new(0x1234, 0x5678);
+        let key_bytes = unsafe {
+            std::slice::from_raw_parts(&key_stroke as *const _ as *const u8, size_of::<KeyStroke>())
+        };
+
+        // Check little-endian byte order for code field (first 2 bytes)
+        assert_eq!(key_bytes[0], 0x34); // Low byte of 0x1234
+        assert_eq!(key_bytes[1], 0x12); // High byte of 0x1234
+        // Check state field (next 2 bytes)
+        assert_eq!(key_bytes[2], 0x78); // Low byte of 0x5678
+        assert_eq!(key_bytes[3], 0x56); // High byte of 0x5678
+
+        let mouse_stroke = MouseStroke {
+            state: 0x1234,
+            flags: 0x5678,
+            rolling: -1, // 0xFFFF
+            x: 100,
+            y: 200,
+            information: 0xABCDEF01,
+        };
+        let mouse_bytes = unsafe {
+            std::slice::from_raw_parts(
+                &mouse_stroke as *const _ as *const u8,
+                size_of::<MouseStroke>(),
+            )
+        };
+
+        // Check field layout matches C struct exactly
+        assert_eq!(mouse_bytes[0], 0x34); // state low byte
+        assert_eq!(mouse_bytes[1], 0x12); // state high byte
+        assert_eq!(mouse_bytes[2], 0x78); // flags low byte
+        assert_eq!(mouse_bytes[3], 0x56); // flags high byte
+        assert_eq!(mouse_bytes[4], 0xFF); // rolling low byte (-1)
+        assert_eq!(mouse_bytes[5], 0xFF); // rolling high byte (-1)
+        // Bytes 6-7 are padding
+        // x field starts at offset 8
+        assert_eq!(mouse_bytes[8], 100); // x low byte
+        assert_eq!(mouse_bytes[9], 0); // x byte 1
+        assert_eq!(mouse_bytes[10], 0); // x byte 2  
+        assert_eq!(mouse_bytes[11], 0); // x byte 3
+    }
+
+    /// Test that internal C-compatible structs match expected sizes
+    #[test]
+    fn test_internal_struct_sizes() {
+        // KeyboardInputData should match KEYBOARD_INPUT_DATA from C
+        assert_eq!(size_of::<KeyboardInputData>(), 12); // 2+2+2+2+4 = 12 bytes
+        assert_eq!(align_of::<KeyboardInputData>(), 4);
+
+        // MouseInputData should match MOUSE_INPUT_DATA from C
+        assert_eq!(size_of::<MouseInputData>(), 24); // 2+2+2+2+4+4+4+4 = 24 bytes
+        assert_eq!(align_of::<MouseInputData>(), 4);
     }
 
     // Note: We can't test the actual interception functionality without
