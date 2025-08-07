@@ -37,7 +37,7 @@ use std::slice;
 use windows_sys::Win32::{
     Foundation::*,
     Storage::FileSystem::*,
-    System::{Memory::*, Threading::*, IO::*},
+    System::{IO::*, Memory::*, Threading::*},
 };
 
 // Constants from the original C header
