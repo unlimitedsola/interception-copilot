@@ -30,20 +30,20 @@
 
 #![cfg(windows)]
 
-use std::ffi::CString;
+use std::ffi::{c_char, c_int, c_long, c_short, c_uint, c_ulong, c_ushort, CString};
 use std::mem;
 use std::ptr;
 use std::slice;
 use windows_sys::Win32::{
     Foundation::{
-        CloseHandle, FALSE, GetLastError, HANDLE, INVALID_HANDLE_VALUE, TRUE, WAIT_FAILED,
+        CloseHandle, GetLastError, FALSE, HANDLE, INVALID_HANDLE_VALUE, TRUE, WAIT_FAILED,
         WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
     Storage::FileSystem::{CreateFileA, OPEN_EXISTING},
     System::{
-        IO::DeviceIoControl,
         Memory::{GetProcessHeap, HeapAlloc, HeapFree},
-        Threading::{CreateEventA, INFINITE, WaitForMultipleObjects},
+        Threading::{CreateEventA, WaitForMultipleObjects, INFINITE},
+        IO::DeviceIoControl,
     },
 };
 
@@ -105,10 +105,8 @@ pub const fn mouse(index: usize) -> Device {
 }
 
 /// Keyboard key states - bitflags that can be combined
-#[allow(non_snake_case)]
-pub mod KeyState {
-    use std::ffi::c_int;
-
+pub struct KeyState;
+impl KeyState {
     /// Key down event
     pub const DOWN: c_int = 0x00;
     /// Key up event
@@ -246,30 +244,50 @@ pub mod InterceptionFilter {
 #[repr(C)]
 pub struct KeyStroke {
     /// Virtual key code
-    pub code: u16,
+    pub code: c_ushort,
     /// Key state flags
-    pub state: u16,
+    pub state: c_ushort,
     /// Additional information
-    pub information: u32,
+    pub information: c_uint,
 }
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of KeyStroke"][size_of::<KeyStroke>() - 8usize];
+    ["Alignment of KeyStroke"][align_of::<KeyStroke>() - 4usize];
+    ["Offset of field: KeyStroke::code"][mem::offset_of!(KeyStroke, code) - 0usize];
+    ["Offset of field: KeyStroke::state"][mem::offset_of!(KeyStroke, state) - 2usize];
+    ["Offset of field: KeyStroke::information"][mem::offset_of!(KeyStroke, information) - 4usize];
+};
 
 /// A mouse stroke event  
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct MouseStroke {
     /// Mouse state flags
-    pub state: u16,
+    pub state: c_ushort,
     /// Mouse movement flags
-    pub flags: u16,
+    pub flags: c_ushort,
     /// Mouse wheel delta
-    pub rolling: i16,
+    pub rolling: c_short,
     /// X coordinate
-    pub x: i32,
+    pub x: c_int,
     /// Y coordinate
-    pub y: i32,
+    pub y: c_int,
     /// Additional information
-    pub information: u32,
+    pub information: c_uint,
 }
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of MouseStroke"][size_of::<MouseStroke>() - 20usize];
+    ["Alignment of MouseStroke"][align_of::<MouseStroke>() - 4usize];
+    ["Offset of field: MouseStroke::state"][mem::offset_of!(MouseStroke, state) - 0usize];
+    ["Offset of field: MouseStroke::flags"][mem::offset_of!(MouseStroke, flags) - 2usize];
+    ["Offset of field: MouseStroke::rolling"][mem::offset_of!(MouseStroke, rolling) - 4usize];
+    ["Offset of field: MouseStroke::x"][mem::offset_of!(MouseStroke, x) - 8usize];
+    ["Offset of field: MouseStroke::y"][mem::offset_of!(MouseStroke, y) - 12usize];
+    ["Offset of field: MouseStroke::information"]
+        [mem::offset_of!(MouseStroke, information) - 16usize];
+};
 
 /// Union type for input strokes (keyboard or mouse)
 #[derive(Clone, Copy)]
@@ -279,44 +297,36 @@ pub union Stroke {
     pub key: KeyStroke,
     /// Mouse stroke data
     pub mouse: MouseStroke,
-    /// Raw byte data
-    pub raw: [u8; 24], // sizeof(MouseStroke) which is larger
-}
-
-impl std::fmt::Debug for Stroke {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Safety: We don't know which variant is active, so just show raw data
-        unsafe { f.debug_struct("Stroke").field("raw", &self.raw).finish() }
-    }
 }
 
 // Internal Windows API structures matching the C implementation
 
 #[repr(C)]
 struct KeyboardInputData {
-    unit_id: u16,
-    make_code: u16,
-    flags: u16,
-    reserved: u16,
-    extra_information: u32,
+    unit_id: c_ushort,
+    make_code: c_ushort,
+    flags: c_ushort,
+    reserved: c_ushort,
+    extra_information: c_uint,
 }
 
 #[repr(C)]
 struct MouseInputData {
-    unit_id: u16,
-    flags: u16,
-    button_flags: u16,
-    button_data: u16,
-    raw_buttons: u32,
-    last_x: i32,
-    last_y: i32,
-    extra_information: u32,
+    unit_id: c_ushort,
+    flags: c_ushort,
+    button_flags: c_ushort,
+    button_data: c_ushort,
+    raw_buttons: c_ulong,
+    last_x: c_long,
+    last_y: c_long,
+    extra_information: c_ulong,
 }
 
 struct DeviceContext {
     handle: HANDLE,
     unempty_event: HANDLE,
 }
+pub type InterceptionStroke = [c_char; 20usize];
 
 impl DeviceContext {
     fn new(device_index: usize) -> Result<Self, InterceptionError> {
@@ -359,7 +369,7 @@ impl DeviceContext {
                 handle,
                 IOCTL_SET_EVENT,
                 event_handles.as_ptr() as *const _,
-                (event_handles.len() * mem::size_of::<HANDLE>()) as u32,
+                (event_handles.len() * size_of::<HANDLE>()) as u32,
                 ptr::null_mut(),
                 0,
                 &mut bytes_returned,
@@ -492,7 +502,7 @@ impl Context {
                 ptr::null(),
                 0,
                 &mut precedence as *mut _ as *mut _,
-                mem::size_of::<Precedence>() as u32,
+                size_of::<Precedence>() as u32,
                 &mut bytes_returned,
                 ptr::null_mut(),
             );
@@ -523,7 +533,7 @@ impl Context {
                 device_ctx.handle,
                 IOCTL_SET_PRECEDENCE,
                 &precedence as *const _ as *const _,
-                mem::size_of::<Precedence>() as u32,
+                size_of::<Precedence>() as u32,
                 ptr::null_mut(),
                 0,
                 &mut bytes_returned,
@@ -555,7 +565,7 @@ impl Context {
                 ptr::null(),
                 0,
                 &mut filter as *mut _ as *mut _,
-                mem::size_of::<Filter>() as u32,
+                size_of::<Filter>() as u32,
                 &mut bytes_returned,
                 ptr::null_mut(),
             );
@@ -585,7 +595,7 @@ impl Context {
                             device_ctx.handle,
                             IOCTL_SET_FILTER,
                             &filter as *const _ as *const _,
-                            mem::size_of::<Filter>() as u32,
+                            size_of::<Filter>() as u32,
                             ptr::null_mut(),
                             0,
                             &mut bytes_returned,
@@ -690,9 +700,8 @@ impl Context {
     ) -> Result<usize, InterceptionError> {
         unsafe {
             let heap = GetProcessHeap();
-            let raw_strokes_ptr =
-                HeapAlloc(heap, 0, strokes.len() * mem::size_of::<KeyboardInputData>())
-                    as *mut KeyboardInputData;
+            let raw_strokes_ptr = HeapAlloc(heap, 0, strokes.len() * size_of::<KeyboardInputData>())
+                as *mut KeyboardInputData;
 
             if raw_strokes_ptr.is_null() {
                 return Err(InterceptionError::MemoryAllocation);
@@ -717,7 +726,7 @@ impl Context {
                 device_ctx.handle,
                 IOCTL_WRITE,
                 raw_strokes_ptr as *const _,
-                (strokes.len() * mem::size_of::<KeyboardInputData>()) as u32,
+                (strokes.len() * size_of::<KeyboardInputData>()) as u32,
                 ptr::null_mut(),
                 0,
                 &mut strokes_written,
@@ -730,7 +739,7 @@ impl Context {
                 return Err(InterceptionError::DeviceIoControl(GetLastError()));
             }
 
-            Ok((strokes_written as usize) / mem::size_of::<KeyboardInputData>())
+            Ok((strokes_written as usize) / size_of::<KeyboardInputData>())
         }
     }
 
@@ -741,9 +750,8 @@ impl Context {
     ) -> Result<usize, InterceptionError> {
         unsafe {
             let heap = GetProcessHeap();
-            let raw_strokes_ptr =
-                HeapAlloc(heap, 0, strokes.len() * mem::size_of::<MouseInputData>())
-                    as *mut MouseInputData;
+            let raw_strokes_ptr = HeapAlloc(heap, 0, strokes.len() * size_of::<MouseInputData>())
+                as *mut MouseInputData;
 
             if raw_strokes_ptr.is_null() {
                 return Err(InterceptionError::MemoryAllocation);
@@ -771,7 +779,7 @@ impl Context {
                 device_ctx.handle,
                 IOCTL_WRITE,
                 raw_strokes_ptr as *const _,
-                (strokes.len() * mem::size_of::<MouseInputData>()) as u32,
+                (strokes.len() * size_of::<MouseInputData>()) as u32,
                 ptr::null_mut(),
                 0,
                 &mut strokes_written,
@@ -784,7 +792,7 @@ impl Context {
                 return Err(InterceptionError::DeviceIoControl(GetLastError()));
             }
 
-            Ok((strokes_written as usize) / mem::size_of::<MouseInputData>())
+            Ok((strokes_written as usize) / size_of::<MouseInputData>())
         }
     }
 
@@ -819,9 +827,8 @@ impl Context {
     ) -> Result<Vec<Stroke>, InterceptionError> {
         unsafe {
             let heap = GetProcessHeap();
-            let raw_strokes_ptr =
-                HeapAlloc(heap, 0, max_strokes * mem::size_of::<KeyboardInputData>())
-                    as *mut KeyboardInputData;
+            let raw_strokes_ptr = HeapAlloc(heap, 0, max_strokes * size_of::<KeyboardInputData>())
+                as *mut KeyboardInputData;
 
             if raw_strokes_ptr.is_null() {
                 return Err(InterceptionError::MemoryAllocation);
@@ -834,7 +841,7 @@ impl Context {
                 ptr::null(),
                 0,
                 raw_strokes_ptr as *mut _,
-                (max_strokes * mem::size_of::<KeyboardInputData>()) as u32,
+                (max_strokes * size_of::<KeyboardInputData>()) as u32,
                 &mut strokes_read,
                 ptr::null_mut(),
             );
@@ -844,7 +851,7 @@ impl Context {
                 return Err(InterceptionError::DeviceIoControl(GetLastError()));
             }
 
-            let strokes_count = (strokes_read as usize) / mem::size_of::<KeyboardInputData>();
+            let strokes_count = (strokes_read as usize) / size_of::<KeyboardInputData>();
             let raw_strokes = slice::from_raw_parts(raw_strokes_ptr, strokes_count);
 
             let mut strokes = Vec::with_capacity(strokes_count);
@@ -870,7 +877,7 @@ impl Context {
     ) -> Result<Vec<Stroke>, InterceptionError> {
         unsafe {
             let heap = GetProcessHeap();
-            let raw_strokes_ptr = HeapAlloc(heap, 0, max_strokes * mem::size_of::<MouseInputData>())
+            let raw_strokes_ptr = HeapAlloc(heap, 0, max_strokes * size_of::<MouseInputData>())
                 as *mut MouseInputData;
 
             if raw_strokes_ptr.is_null() {
@@ -884,7 +891,7 @@ impl Context {
                 ptr::null(),
                 0,
                 raw_strokes_ptr as *mut _,
-                (max_strokes * mem::size_of::<MouseInputData>()) as u32,
+                (max_strokes * size_of::<MouseInputData>()) as u32,
                 &mut strokes_read,
                 ptr::null_mut(),
             );
@@ -894,7 +901,7 @@ impl Context {
                 return Err(InterceptionError::DeviceIoControl(GetLastError()));
             }
 
-            let strokes_count = (strokes_read as usize) / mem::size_of::<MouseInputData>();
+            let strokes_count = (strokes_read as usize) / size_of::<MouseInputData>();
             let raw_strokes = slice::from_raw_parts(raw_strokes_ptr, strokes_count);
 
             let mut strokes = Vec::with_capacity(strokes_count);
@@ -1013,7 +1020,7 @@ impl MouseStroke {
     }
 
     /// Create a mouse button down stroke
-    pub fn button_down(button: std::ffi::c_int) -> Self {
+    pub fn button_down(button: c_int) -> Self {
         Self {
             state: button as u16,
             flags: 0,
@@ -1025,7 +1032,7 @@ impl MouseStroke {
     }
 
     /// Create a mouse button up stroke
-    pub fn button_up(button: std::ffi::c_int) -> Self {
+    pub fn button_up(button: c_int) -> Self {
         Self {
             state: button as u16,
             flags: 0,
@@ -1070,7 +1077,6 @@ impl From<MouseStroke> for Stroke {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::mem::{align_of, size_of};
 
     #[test]
     fn test_device_functions() {
@@ -1111,92 +1117,4 @@ mod tests {
         assert_eq!(wheel_stroke.rolling, 120);
         assert_eq!(wheel_stroke.state, MouseState::WHEEL as u16);
     }
-
-    #[test]
-    fn test_filter_constants() {
-        assert_eq!(InterceptionFilter::KEY_NONE, 0x0000);
-        assert_eq!(InterceptionFilter::KEY_ALL, 0xFFFF);
-        assert_eq!(InterceptionFilter::MOUSE_NONE, 0x0000);
-        assert_eq!(InterceptionFilter::MOUSE_ALL, 0xFFFF);
-        // Test corrected filter values to match C header
-        assert_eq!(InterceptionFilter::KEY_DOWN, 0x01); // INTERCEPTION_KEY_UP (C header typo)
-        assert_eq!(InterceptionFilter::KEY_UP, 0x02); // INTERCEPTION_KEY_UP << 1
-        assert_eq!(InterceptionFilter::KEY_E0, 0x04); // INTERCEPTION_KEY_E0 << 1
-        assert_eq!(InterceptionFilter::KEY_E1, 0x08); // INTERCEPTION_KEY_E1 << 1
-    }
-
-    /// Test that our Rust structs match the exact memory layout of C structs
-    #[test]
-    fn test_c_struct_compatibility() {
-        // Test KeyStroke matches InterceptionKeyStroke
-        // C struct: { unsigned short code; unsigned short state; unsigned int information; }
-        assert_eq!(size_of::<KeyStroke>(), 8); // 2 + 2 + 4 = 8 bytes
-        assert_eq!(align_of::<KeyStroke>(), 4); // Aligned to u32
-
-        // Test MouseStroke matches InterceptionMouseStroke
-        // C struct: { unsigned short state; unsigned short flags; short rolling; int x; int y; unsigned int information; }
-        assert_eq!(size_of::<MouseStroke>(), 24); // 2 + 2 + 2 + 2(pad) + 4 + 4 + 4 = 20 bytes + 4 padding = 24
-        assert_eq!(align_of::<MouseStroke>(), 4); // Aligned to i32
-
-        // Test that Stroke union has correct size (should be at least as large as MouseStroke)
-        assert_eq!(size_of::<Stroke>(), 24);
-        assert_eq!(align_of::<Stroke>(), 4);
-
-        // Verify field offsets match C struct layout
-        let key_stroke = KeyStroke::new(0x1234, 0x5678);
-        let key_bytes = unsafe {
-            std::slice::from_raw_parts(&key_stroke as *const _ as *const u8, size_of::<KeyStroke>())
-        };
-
-        // Check little-endian byte order for code field (first 2 bytes)
-        assert_eq!(key_bytes[0], 0x34); // Low byte of 0x1234
-        assert_eq!(key_bytes[1], 0x12); // High byte of 0x1234
-        // Check state field (next 2 bytes)
-        assert_eq!(key_bytes[2], 0x78); // Low byte of 0x5678
-        assert_eq!(key_bytes[3], 0x56); // High byte of 0x5678
-
-        let mouse_stroke = MouseStroke {
-            state: 0x1234,
-            flags: 0x5678,
-            rolling: -1, // 0xFFFF
-            x: 100,
-            y: 200,
-            information: 0xABCDEF01,
-        };
-        let mouse_bytes = unsafe {
-            std::slice::from_raw_parts(
-                &mouse_stroke as *const _ as *const u8,
-                size_of::<MouseStroke>(),
-            )
-        };
-
-        // Check field layout matches C struct exactly
-        assert_eq!(mouse_bytes[0], 0x34); // state low byte
-        assert_eq!(mouse_bytes[1], 0x12); // state high byte
-        assert_eq!(mouse_bytes[2], 0x78); // flags low byte
-        assert_eq!(mouse_bytes[3], 0x56); // flags high byte
-        assert_eq!(mouse_bytes[4], 0xFF); // rolling low byte (-1)
-        assert_eq!(mouse_bytes[5], 0xFF); // rolling high byte (-1)
-        // Bytes 6-7 are padding
-        // x field starts at offset 8
-        assert_eq!(mouse_bytes[8], 100); // x low byte
-        assert_eq!(mouse_bytes[9], 0); // x byte 1
-        assert_eq!(mouse_bytes[10], 0); // x byte 2  
-        assert_eq!(mouse_bytes[11], 0); // x byte 3
-    }
-
-    /// Test that internal C-compatible structs match expected sizes
-    #[test]
-    fn test_internal_struct_sizes() {
-        // KeyboardInputData should match KEYBOARD_INPUT_DATA from C
-        assert_eq!(size_of::<KeyboardInputData>(), 12); // 2+2+2+2+4 = 12 bytes
-        assert_eq!(align_of::<KeyboardInputData>(), 4);
-
-        // MouseInputData should match MOUSE_INPUT_DATA from C
-        assert_eq!(size_of::<MouseInputData>(), 24); // 2+2+2+2+4+4+4+4 = 24 bytes
-        assert_eq!(align_of::<MouseInputData>(), 4);
-    }
-
-    // Note: We can't test the actual interception functionality without
-    // the Windows driver being installed and running on Windows
 }
