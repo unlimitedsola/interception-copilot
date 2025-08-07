@@ -1,7 +1,7 @@
 [package]
 name = "interception-copilot"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["Interception Copilot"]
 description = "Rust port of the Interception library using windows-sys with a safe API"
 license = "LGPL-3.0"
@@ -10,18 +10,13 @@ documentation = "https://docs.rs/interception-copilot"
 keywords = ["windows", "input", "keyboard", "mouse", "interception"]
 categories = ["os::windows-apis", "api-bindings"]
 
-[lib]
-name = "interception_copilot"
-crate-type = ["lib"]
-
 [dependencies]
-windows-sys = { version = "0.59", features = [
+windows-sys = { version = "0.60.2", features = [
     "Win32_Foundation",
-    "Win32_System_IO", 
+    "Win32_System_IO",
+    "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_Threading",
     "Win32_System_Memory",
     "Win32_System_Ioctl",
 ] }
-
-[target.'cfg(windows)'.dependencies]
