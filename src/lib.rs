@@ -1,6 +1,6 @@
 //! # Interception Copilot
-//! 
-//! Rust port of the [Interception library](https://github.com/oblitum/Interception) 
+//!
+//! Rust port of the [Interception library](https://github.com/oblitum/Interception)
 //! using `windows-sys` with a safe API for intercepting keyboard and mouse input on Windows.
 //!
 //! The Interception library allows you to intercept and modify keyboard and mouse input
@@ -8,17 +8,17 @@
 //! to the original C API and safe wrappers for convenient use.
 //!
 //! ## Example
-//! 
+//!
 //! ```rust,no_run
 //! use interception_copilot::{Context, Device, InterceptionFilter};
-//! 
+//!
 //! // Create an interception context
 //! let context = Context::new().expect("Failed to create interception context");
-//! 
+//!
 //! // Set filter to capture all keyboard input
 //! context.set_filter(Device::is_keyboard, InterceptionFilter::KEY_ALL)
 //!     .expect("Failed to set keyboard filter");
-//! 
+//!
 //! // Wait for keyboard events and process them
 //! loop {
 //!     if let Some(device) = context.wait() {
@@ -29,7 +29,6 @@
 //! ```
 
 #![cfg(windows)]
-#![warn(missing_docs, rust_2018_idioms)]
 
 use std::ffi::CString;
 use std::mem;
@@ -38,48 +37,33 @@ use std::slice;
 use windows_sys::Win32::{
     Foundation::*,
     Storage::FileSystem::*,
-    System::{IO::*, Memory::*, Threading::*},
+    System::{Memory::*, Threading::*, IO::*},
 };
-
-// Import specific Windows API functions
-extern "system" {
-    fn CreateFileA(
-        lpfilename: *const u8,
-        dwdesiredaccess: u32,
-        dwsharemode: u32,
-        lpsecurityattributes: *mut core::ffi::c_void,
-        dwcreationdisposition: u32,
-        dwflagsandattributes: u32,
-        htemplatefile: HANDLE,
-    ) -> HANDLE;
-    
-    fn CreateEventA(
-        lpeventattributes: *mut core::ffi::c_void,
-        bmanualreset: BOOL,
-        binitialstate: BOOL,
-        lpname: *const u8,
-    ) -> HANDLE;
-}
 
 // Constants from the original C header
 const INTERCEPTION_MAX_KEYBOARD: usize = 10;
 const INTERCEPTION_MAX_MOUSE: usize = 10;
 const INTERCEPTION_MAX_DEVICE: usize = INTERCEPTION_MAX_KEYBOARD + INTERCEPTION_MAX_MOUSE;
 
-// Define constants not available in windows-sys  
+// Define constants not available in windows-sys
 const FILE_DEVICE_UNKNOWN: u32 = 0x00000022;
 const METHOD_BUFFERED: u32 = 0;
 const FILE_ANY_ACCESS: u32 = 0;
 
 // IOCTL codes from the original C implementation
-const IOCTL_SET_PRECEDENCE: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_GET_PRECEDENCE: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_SET_FILTER: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x804, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_GET_FILTER: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x808, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_SET_PRECEDENCE: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_GET_PRECEDENCE: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_SET_FILTER: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x804, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_GET_FILTER: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x808, METHOD_BUFFERED, FILE_ANY_ACCESS);
 const IOCTL_SET_EVENT: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x810, METHOD_BUFFERED, FILE_ANY_ACCESS);
 const IOCTL_WRITE: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x820, METHOD_BUFFERED, FILE_ANY_ACCESS);
 const IOCTL_READ: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x840, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_GET_HARDWARE_ID: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x880, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_GET_HARDWARE_ID: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x880, METHOD_BUFFERED, FILE_ANY_ACCESS);
 
 // Helper function to construct IOCTL codes
 const fn ctl_code(device_type: u32, function: u32, method: u32, access: u32) -> u32 {
@@ -179,7 +163,7 @@ pub enum MouseFlag {
 #[allow(non_snake_case)]
 pub mod InterceptionFilter {
     use super::Filter;
-    
+
     /// No keyboard filtering
     pub const KEY_NONE: Filter = 0x0000;
     /// Filter all keyboard events
@@ -192,14 +176,14 @@ pub mod InterceptionFilter {
     pub const KEY_E0: Filter = 0x02 << 1;
     /// Filter E1 extended keys
     pub const KEY_E1: Filter = 0x04 << 1;
-    
+
     /// No mouse filtering
     pub const MOUSE_NONE: Filter = 0x0000;
     /// Filter all mouse events
     pub const MOUSE_ALL: Filter = 0xFFFF;
     /// Filter mouse movement
     pub const MOUSE_MOVE: Filter = 0x1000;
-    
+
     // Mouse button filters
     /// Filter left mouse button down
     pub const MOUSE_LEFT_BUTTON_DOWN: Filter = 0x001;
@@ -272,11 +256,7 @@ pub union Stroke {
 impl std::fmt::Debug for Stroke {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Safety: We don't know which variant is active, so just show raw data
-        unsafe { 
-            f.debug_struct("Stroke")
-                .field("raw", &self.raw)
-                .finish()
-        }
+        unsafe { f.debug_struct("Stroke").field("raw", &self.raw).finish() }
     }
 }
 
@@ -311,9 +291,9 @@ struct DeviceContext {
 impl DeviceContext {
     fn new(device_index: usize) -> Result<Self, InterceptionError> {
         let device_name = format!("\\\\.\\interception{:02}", device_index);
-        let device_name_c = CString::new(device_name)
-            .map_err(|_| InterceptionError::InvalidPath)?;
-        
+        let device_name_c =
+            CString::new(device_name).map_err(|_| InterceptionError::InvalidPath)?;
+
         unsafe {
             let handle = CreateFileA(
                 device_name_c.as_ptr() as *const u8,
@@ -331,7 +311,7 @@ impl DeviceContext {
 
             let unempty_event = CreateEventA(
                 ptr::null_mut(),
-                TRUE, // Manual reset
+                TRUE,  // Manual reset
                 FALSE, // Initially non-signaled
                 ptr::null(),
             );
@@ -408,22 +388,28 @@ pub enum InterceptionError {
 impl std::fmt::Display for InterceptionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InterceptionError::CreateFile(code) => 
-                write!(f, "Failed to create device file, error code: {}", code),
-            InterceptionError::CreateEvent(code) => 
-                write!(f, "Failed to create event, error code: {}", code),
-            InterceptionError::DeviceIoControl(code) => 
-                write!(f, "Device I/O control failed, error code: {}", code),
-            InterceptionError::InvalidPath => 
-                write!(f, "Invalid device path or string conversion error"),
-            InterceptionError::InvalidDevice => 
-                write!(f, "Invalid device ID"),
-            InterceptionError::ContextNotInitialized => 
-                write!(f, "Interception context is not initialized"),
-            InterceptionError::MemoryAllocation => 
-                write!(f, "Memory allocation failed"),
-            InterceptionError::WaitFailed(code) => 
-                write!(f, "Wait operation failed or timed out, error code: {}", code),
+            InterceptionError::CreateFile(code) => {
+                write!(f, "Failed to create device file, error code: {}", code)
+            }
+            InterceptionError::CreateEvent(code) => {
+                write!(f, "Failed to create event, error code: {}", code)
+            }
+            InterceptionError::DeviceIoControl(code) => {
+                write!(f, "Device I/O control failed, error code: {}", code)
+            }
+            InterceptionError::InvalidPath => {
+                write!(f, "Invalid device path or string conversion error")
+            }
+            InterceptionError::InvalidDevice => write!(f, "Invalid device ID"),
+            InterceptionError::ContextNotInitialized => {
+                write!(f, "Interception context is not initialized")
+            }
+            InterceptionError::MemoryAllocation => write!(f, "Memory allocation failed"),
+            InterceptionError::WaitFailed(code) => write!(
+                f,
+                "Wait operation failed or timed out, error code: {}",
+                code
+            ),
         }
     }
 }
@@ -437,12 +423,12 @@ pub struct Context {
 
 impl Context {
     /// Create a new interception context
-    /// 
+    ///
     /// This initializes communication with all available interception devices.
     /// Requires the Interception driver to be installed on the system.
     pub fn new() -> Result<Self, InterceptionError> {
         let mut devices = Vec::with_capacity(INTERCEPTION_MAX_DEVICE);
-        
+
         // Initialize all device contexts
         for i in 0..INTERCEPTION_MAX_DEVICE {
             match DeviceContext::new(i) {
@@ -464,7 +450,8 @@ impl Context {
     /// Get the precedence for a specific device
     pub fn get_precedence(&self, device: Device) -> Result<Precedence, InterceptionError> {
         let device_index = self.validate_device(device)?;
-        let device_ctx = self.devices[device_index].as_ref()
+        let device_ctx = self.devices[device_index]
+            .as_ref()
             .ok_or(InterceptionError::InvalidDevice)?;
 
         let mut precedence: Precedence = 0;
@@ -491,9 +478,14 @@ impl Context {
     }
 
     /// Set the precedence for a specific device
-    pub fn set_precedence(&self, device: Device, precedence: Precedence) -> Result<(), InterceptionError> {
+    pub fn set_precedence(
+        &self,
+        device: Device,
+        precedence: Precedence,
+    ) -> Result<(), InterceptionError> {
         let device_index = self.validate_device(device)?;
-        let device_ctx = self.devices[device_index].as_ref()
+        let device_ctx = self.devices[device_index]
+            .as_ref()
             .ok_or(InterceptionError::InvalidDevice)?;
 
         let mut bytes_returned = 0;
@@ -521,7 +513,8 @@ impl Context {
     /// Get the filter for a specific device
     pub fn get_filter(&self, device: Device) -> Result<Filter, InterceptionError> {
         let device_index = self.validate_device(device)?;
-        let device_ctx = self.devices[device_index].as_ref()
+        let device_ctx = self.devices[device_index]
+            .as_ref()
             .ok_or(InterceptionError::InvalidDevice)?;
 
         let mut filter: Filter = 0;
@@ -548,7 +541,11 @@ impl Context {
     }
 
     /// Set a filter for devices matching the predicate
-    pub fn set_filter(&self, predicate: PredicateFn, filter: Filter) -> Result<(), InterceptionError> {
+    pub fn set_filter(
+        &self,
+        predicate: PredicateFn,
+        filter: Filter,
+    ) -> Result<(), InterceptionError> {
         for i in 0..INTERCEPTION_MAX_DEVICE {
             let device_id = (i + 1) as Device;
             if predicate(device_id) {
@@ -591,10 +588,10 @@ impl Context {
     }
 
     /// Wait for input from any device with a timeout
-    /// 
+    ///
     /// # Arguments
     /// * `timeout_ms` - Timeout in milliseconds, or `INFINITE` for no timeout
-    /// 
+    ///
     /// # Returns
     /// * `Some(device)` - The device that has input available
     /// * `None` - Timeout occurred or error
@@ -644,7 +641,8 @@ impl Context {
         }
 
         let device_index = self.validate_device(device)?;
-        let device_ctx = self.devices[device_index].as_ref()
+        let device_ctx = self.devices[device_index]
+            .as_ref()
             .ok_or(InterceptionError::InvalidDevice)?;
 
         let strokes_written = if is_keyboard_device(device) {
@@ -658,14 +656,16 @@ impl Context {
         Ok(strokes_written)
     }
 
-    fn send_keyboard_strokes(&self, device_ctx: &DeviceContext, strokes: &[Stroke]) -> Result<usize, InterceptionError> {
+    fn send_keyboard_strokes(
+        &self,
+        device_ctx: &DeviceContext,
+        strokes: &[Stroke],
+    ) -> Result<usize, InterceptionError> {
         unsafe {
             let heap = GetProcessHeap();
-            let raw_strokes_ptr = HeapAlloc(
-                heap,
-                0,
-                strokes.len() * mem::size_of::<KeyboardInputData>(),
-            ) as *mut KeyboardInputData;
+            let raw_strokes_ptr =
+                HeapAlloc(heap, 0, strokes.len() * mem::size_of::<KeyboardInputData>())
+                    as *mut KeyboardInputData;
 
             if raw_strokes_ptr.is_null() {
                 return Err(InterceptionError::MemoryAllocation);
@@ -707,14 +707,16 @@ impl Context {
         }
     }
 
-    fn send_mouse_strokes(&self, device_ctx: &DeviceContext, strokes: &[Stroke]) -> Result<usize, InterceptionError> {
+    fn send_mouse_strokes(
+        &self,
+        device_ctx: &DeviceContext,
+        strokes: &[Stroke],
+    ) -> Result<usize, InterceptionError> {
         unsafe {
             let heap = GetProcessHeap();
-            let raw_strokes_ptr = HeapAlloc(
-                heap,
-                0,
-                strokes.len() * mem::size_of::<MouseInputData>(),
-            ) as *mut MouseInputData;
+            let raw_strokes_ptr =
+                HeapAlloc(heap, 0, strokes.len() * mem::size_of::<MouseInputData>())
+                    as *mut MouseInputData;
 
             if raw_strokes_ptr.is_null() {
                 return Err(InterceptionError::MemoryAllocation);
@@ -760,13 +762,18 @@ impl Context {
     }
 
     /// Receive strokes from a device
-    pub fn receive(&self, device: Device, max_strokes: usize) -> Result<Vec<Stroke>, InterceptionError> {
+    pub fn receive(
+        &self,
+        device: Device,
+        max_strokes: usize,
+    ) -> Result<Vec<Stroke>, InterceptionError> {
         if max_strokes == 0 {
             return Ok(Vec::new());
         }
 
         let device_index = self.validate_device(device)?;
-        let device_ctx = self.devices[device_index].as_ref()
+        let device_ctx = self.devices[device_index]
+            .as_ref()
             .ok_or(InterceptionError::InvalidDevice)?;
 
         if is_keyboard_device(device) {
@@ -778,14 +785,16 @@ impl Context {
         }
     }
 
-    fn receive_keyboard_strokes(&self, device_ctx: &DeviceContext, max_strokes: usize) -> Result<Vec<Stroke>, InterceptionError> {
+    fn receive_keyboard_strokes(
+        &self,
+        device_ctx: &DeviceContext,
+        max_strokes: usize,
+    ) -> Result<Vec<Stroke>, InterceptionError> {
         unsafe {
             let heap = GetProcessHeap();
-            let raw_strokes_ptr = HeapAlloc(
-                heap,
-                0,
-                max_strokes * mem::size_of::<KeyboardInputData>(),
-            ) as *mut KeyboardInputData;
+            let raw_strokes_ptr =
+                HeapAlloc(heap, 0, max_strokes * mem::size_of::<KeyboardInputData>())
+                    as *mut KeyboardInputData;
 
             if raw_strokes_ptr.is_null() {
                 return Err(InterceptionError::MemoryAllocation);
@@ -810,7 +819,7 @@ impl Context {
 
             let strokes_count = (strokes_read as usize) / mem::size_of::<KeyboardInputData>();
             let raw_strokes = slice::from_raw_parts(raw_strokes_ptr, strokes_count);
-            
+
             let mut strokes = Vec::with_capacity(strokes_count);
             for raw_stroke in raw_strokes {
                 strokes.push(Stroke {
@@ -818,7 +827,7 @@ impl Context {
                         code: raw_stroke.make_code,
                         state: raw_stroke.flags,
                         information: raw_stroke.extra_information,
-                    }
+                    },
                 });
             }
 
@@ -827,14 +836,15 @@ impl Context {
         }
     }
 
-    fn receive_mouse_strokes(&self, device_ctx: &DeviceContext, max_strokes: usize) -> Result<Vec<Stroke>, InterceptionError> {
+    fn receive_mouse_strokes(
+        &self,
+        device_ctx: &DeviceContext,
+        max_strokes: usize,
+    ) -> Result<Vec<Stroke>, InterceptionError> {
         unsafe {
             let heap = GetProcessHeap();
-            let raw_strokes_ptr = HeapAlloc(
-                heap,
-                0,
-                max_strokes * mem::size_of::<MouseInputData>(),
-            ) as *mut MouseInputData;
+            let raw_strokes_ptr = HeapAlloc(heap, 0, max_strokes * mem::size_of::<MouseInputData>())
+                as *mut MouseInputData;
 
             if raw_strokes_ptr.is_null() {
                 return Err(InterceptionError::MemoryAllocation);
@@ -859,7 +869,7 @@ impl Context {
 
             let strokes_count = (strokes_read as usize) / mem::size_of::<MouseInputData>();
             let raw_strokes = slice::from_raw_parts(raw_strokes_ptr, strokes_count);
-            
+
             let mut strokes = Vec::with_capacity(strokes_count);
             for raw_stroke in raw_strokes {
                 strokes.push(Stroke {
@@ -870,7 +880,7 @@ impl Context {
                         x: raw_stroke.last_x,
                         y: raw_stroke.last_y,
                         information: raw_stroke.extra_information,
-                    }
+                    },
                 });
             }
 
@@ -882,7 +892,8 @@ impl Context {
     /// Get hardware ID for a device
     pub fn get_hardware_id(&self, device: Device) -> Result<Vec<u8>, InterceptionError> {
         let device_index = self.validate_device(device)?;
-        let device_ctx = self.devices[device_index].as_ref()
+        let device_ctx = self.devices[device_index]
+            .as_ref()
             .ok_or(InterceptionError::InvalidDevice)?;
 
         // Try with a reasonable buffer size first
@@ -1043,7 +1054,7 @@ mod tests {
             assert!(!is_invalid_device(dev));
         }
 
-        // Test mouse devices  
+        // Test mouse devices
         for i in 0..INTERCEPTION_MAX_MOUSE {
             let dev = mouse(i);
             assert!(is_mouse_device(dev));
