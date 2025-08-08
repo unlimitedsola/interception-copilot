@@ -4,7 +4,8 @@
 //! and demonstrates how to send synthetic mouse events.
 
 use interception_copilot::{
-    Context, Filter, MouseState, MouseStroke, Stroke, is_mouse_device, mouse,
+    Context, FILTER_MOUSE_ALL, MOUSE_LEFT_BUTTON_DOWN, MOUSE_LEFT_BUTTON_UP, MouseStroke, Stroke,
+    is_mouse_device, mouse,
 };
 
 #[cfg(windows)]
@@ -17,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let context = Context::new()?;
 
     // Set filter to capture all mouse events
-    context.set_filter(is_mouse_device, Filter::MOUSE_ALL)?;
+    context.set_filter(is_mouse_device, FILTER_MOUSE_ALL)?;
 
     let mut event_count = 0;
 
@@ -56,11 +57,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if event_count > 0 && event_count % 10 == 0 {
                 println!("Sending synthetic mouse click...");
 
-                let click_down = Stroke::from(MouseStroke::button_down(
-                    MouseState::LEFT_BUTTON_DOWN.bits(),
-                ));
-                let click_up =
-                    Stroke::from(MouseStroke::button_up(MouseState::LEFT_BUTTON_UP.bits()));
+                let click_down = Stroke::from(MouseStroke::button_down(MOUSE_LEFT_BUTTON_DOWN));
+                let click_up = Stroke::from(MouseStroke::button_up(MOUSE_LEFT_BUTTON_UP));
 
                 // Send to first mouse device
                 if let Some(first_mouse) = (0..10).map(mouse).find(|&d| is_mouse_device(d)) {

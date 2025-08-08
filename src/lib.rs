@@ -30,7 +30,6 @@
 
 #![cfg(windows)]
 
-use bitflags::bitflags;
 use std::ffi::{c_int, c_long, c_short, c_uint, c_ulong, c_ushort};
 use std::mem;
 use std::ptr;
@@ -102,151 +101,135 @@ pub const fn mouse(index: usize) -> Device {
     (INTERCEPTION_MAX_KEYBOARD as i32) + (index as i32) + 1
 }
 
-bitflags! {
-    /// Keyboard key states - bitflags that can be combined
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct KeyState: c_int {
-        /// Key down event
-        const DOWN = 0x00;
-        /// Key up event
-        const UP = 0x01;
-        /// Extended key code (E0 prefix)
-        const E0 = 0x02;
-        /// Extended key code (E1 prefix)
-        const E1 = 0x04;
-        /// Terminal Services LED update
-        const TERMSRV_SET_LED = 0x08;
-        /// Terminal Services shadow
-        const TERMSRV_SHADOW = 0x10;
-        /// Terminal Services virtual key packet
-        const TERMSRV_VKPACKET = 0x20;
-    }
-}
+/// Keyboard key state flags
+pub type KeyState = c_int;
 
-bitflags! {
-    /// Mouse button and wheel states - bitflags that can be combined
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct MouseState: c_int {
-        /// Left mouse button down
-        const LEFT_BUTTON_DOWN = 0x001;
-        /// Left mouse button up
-        const LEFT_BUTTON_UP = 0x002;
-        /// Right mouse button down
-        const RIGHT_BUTTON_DOWN = 0x004;
-        /// Right mouse button up
-        const RIGHT_BUTTON_UP = 0x008;
-        /// Middle mouse button down
-        const MIDDLE_BUTTON_DOWN = 0x010;
-        /// Middle mouse button up
-        const MIDDLE_BUTTON_UP = 0x020;
-        /// Mouse button 4 down
-        const BUTTON_4_DOWN = 0x040;
-        /// Mouse button 4 up
-        const BUTTON_4_UP = 0x080;
-        /// Mouse button 5 down
-        const BUTTON_5_DOWN = 0x100;
-        /// Mouse button 5 up
-        const BUTTON_5_UP = 0x200;
-        /// Mouse wheel scroll
-        const WHEEL = 0x400;
-        /// Mouse horizontal wheel scroll
-        const HWHEEL = 0x800;
-    }
-}
+/// Key down event
+pub const KEY_DOWN: KeyState = 0x00;
+/// Key up event
+pub const KEY_UP: KeyState = 0x01;
+/// Extended key code (E0 prefix)
+pub const KEY_E0: KeyState = 0x02;
+/// Extended key code (E1 prefix)
+pub const KEY_E1: KeyState = 0x04;
+/// Terminal Services LED update
+pub const KEY_TERMSRV_SET_LED: KeyState = 0x08;
+/// Terminal Services shadow
+pub const KEY_TERMSRV_SHADOW: KeyState = 0x10;
+/// Terminal Services virtual key packet
+pub const KEY_TERMSRV_VKPACKET: KeyState = 0x20;
 
-impl MouseState {
-    /// Mouse button 1 down (alias for left button)
-    pub const BUTTON_1_DOWN: MouseState = MouseState::LEFT_BUTTON_DOWN;
-    /// Mouse button 1 up (alias for left button)
-    pub const BUTTON_1_UP: MouseState = MouseState::LEFT_BUTTON_UP;
-    /// Mouse button 2 down (alias for right button)
-    pub const BUTTON_2_DOWN: MouseState = MouseState::RIGHT_BUTTON_DOWN;
-    /// Mouse button 2 up (alias for right button)
-    pub const BUTTON_2_UP: MouseState = MouseState::RIGHT_BUTTON_UP;
-    /// Mouse button 3 down (alias for middle button)
-    pub const BUTTON_3_DOWN: MouseState = MouseState::MIDDLE_BUTTON_DOWN;
-    /// Mouse button 3 up (alias for middle button)
-    pub const BUTTON_3_UP: MouseState = MouseState::MIDDLE_BUTTON_UP;
-}
+/// Mouse button and wheel state flags  
+pub type MouseState = c_int;
 
-bitflags! {
-    /// Mouse movement flags - bitflags that can be combined
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct MouseFlag: c_int {
-        /// Relative movement
-        const MOVE_RELATIVE = 0x000;
-        /// Absolute movement
-        const MOVE_ABSOLUTE = 0x001;
-        /// Virtual desktop coordinates
-        const VIRTUAL_DESKTOP = 0x002;
-        /// Mouse attributes changed
-        const ATTRIBUTES_CHANGED = 0x004;
-        /// Don't coalesce mouse movements
-        const MOVE_NOCOALESCE = 0x008;
-        /// Terminal Services source shadow
-        const TERMSRV_SRC_SHADOW = 0x100;
-    }
-}
+/// Left mouse button down
+pub const MOUSE_LEFT_BUTTON_DOWN: MouseState = 0x001;
+/// Left mouse button up
+pub const MOUSE_LEFT_BUTTON_UP: MouseState = 0x002;
+/// Right mouse button down
+pub const MOUSE_RIGHT_BUTTON_DOWN: MouseState = 0x004;
+/// Right mouse button up
+pub const MOUSE_RIGHT_BUTTON_UP: MouseState = 0x008;
+/// Middle mouse button down
+pub const MOUSE_MIDDLE_BUTTON_DOWN: MouseState = 0x010;
+/// Middle mouse button up
+pub const MOUSE_MIDDLE_BUTTON_UP: MouseState = 0x020;
+/// Mouse button 4 down
+pub const MOUSE_BUTTON_4_DOWN: MouseState = 0x040;
+/// Mouse button 4 up
+pub const MOUSE_BUTTON_4_UP: MouseState = 0x080;
+/// Mouse button 5 down
+pub const MOUSE_BUTTON_5_DOWN: MouseState = 0x100;
+/// Mouse button 5 up
+pub const MOUSE_BUTTON_5_UP: MouseState = 0x200;
+/// Mouse wheel scroll
+pub const MOUSE_WHEEL: MouseState = 0x400;
+/// Mouse horizontal wheel scroll
+pub const MOUSE_HWHEEL: MouseState = 0x800;
 
-bitflags! {
-    /// Filter bitmask for selecting which events to intercept
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct Filter: u16 {
-        /// No filtering
-        const NONE = 0x0000;
-        /// Filter all events
-        const ALL = 0xFFFF;
+/// Mouse button 1 down (alias for left button)
+pub const MOUSE_BUTTON_1_DOWN: MouseState = MOUSE_LEFT_BUTTON_DOWN;
+/// Mouse button 1 up (alias for left button)
+pub const MOUSE_BUTTON_1_UP: MouseState = MOUSE_LEFT_BUTTON_UP;
+/// Mouse button 2 down (alias for right button)
+pub const MOUSE_BUTTON_2_DOWN: MouseState = MOUSE_RIGHT_BUTTON_DOWN;
+/// Mouse button 2 up (alias for right button)
+pub const MOUSE_BUTTON_2_UP: MouseState = MOUSE_RIGHT_BUTTON_UP;
+/// Mouse button 3 down (alias for middle button)
+pub const MOUSE_BUTTON_3_DOWN: MouseState = MOUSE_MIDDLE_BUTTON_DOWN;
+/// Mouse button 3 up (alias for middle button)
+pub const MOUSE_BUTTON_3_UP: MouseState = MOUSE_MIDDLE_BUTTON_UP;
 
-        // Keyboard filters
-        /// Filter key down events
-        const KEY_DOWN = 0x01;
-        /// Filter key up events
-        const KEY_UP = 0x02;
-        /// Filter E0 extended keys
-        const KEY_E0 = 0x08;
-        /// Filter E1 extended keys
-        const KEY_E1 = 0x016;
+/// Mouse movement flags
+pub type MouseFlag = c_int;
 
-        // Mouse button filters
-        /// Filter left mouse button down
-        const MOUSE_LEFT_BUTTON_DOWN = 0x001;
-        /// Filter left mouse button up
-        const MOUSE_LEFT_BUTTON_UP = 0x002;
-        /// Filter right mouse button down
-        const MOUSE_RIGHT_BUTTON_DOWN = 0x004;
-        /// Filter right mouse button up
-        const MOUSE_RIGHT_BUTTON_UP = 0x008;
-        /// Filter middle mouse button down
-        const MOUSE_MIDDLE_BUTTON_DOWN = 0x010;
-        /// Filter middle mouse button up
-        const MOUSE_MIDDLE_BUTTON_UP = 0x020;
-        /// Filter mouse button 4 down
-        const MOUSE_BUTTON_4_DOWN = 0x040;
-        /// Filter mouse button 4 up
-        const MOUSE_BUTTON_4_UP = 0x080;
-        /// Filter mouse button 5 down
-        const MOUSE_BUTTON_5_DOWN = 0x100;
-        /// Filter mouse button 5 up
-        const MOUSE_BUTTON_5_UP = 0x200;
-        /// Filter mouse wheel
-        const MOUSE_WHEEL = 0x400;
-        /// Filter mouse horizontal wheel
-        const MOUSE_HWHEEL = 0x800;
-        /// Filter mouse movement
-        const MOUSE_MOVE = 0x1000;
-    }
-}
+/// Relative movement
+pub const MOUSE_MOVE_RELATIVE: MouseFlag = 0x000;
+/// Absolute movement
+pub const MOUSE_MOVE_ABSOLUTE: MouseFlag = 0x001;
+/// Virtual desktop coordinates
+pub const MOUSE_VIRTUAL_DESKTOP: MouseFlag = 0x002;
+/// Mouse attributes changed
+pub const MOUSE_ATTRIBUTES_CHANGED: MouseFlag = 0x004;
+/// Don't coalesce mouse movements
+pub const MOUSE_MOVE_NOCOALESCE: MouseFlag = 0x008;
+/// Terminal Services source shadow
+pub const MOUSE_TERMSRV_SRC_SHADOW: MouseFlag = 0x100;
 
-impl Filter {
-    /// No keyboard filtering
-    pub const KEY_NONE: Filter = Filter::NONE;
-    /// Filter all keyboard events
-    pub const KEY_ALL: Filter = Filter::ALL;
-    /// No mouse filtering
-    pub const MOUSE_NONE: Filter = Filter::NONE;
-    /// Filter all mouse events
-    pub const MOUSE_ALL: Filter = Filter::ALL;
-}
+/// Filter bitmask for selecting which events to intercept
+pub type Filter = u16;
+
+/// No filtering
+pub const FILTER_NONE: Filter = 0x0000;
+/// Filter all events
+pub const FILTER_ALL: Filter = 0xFFFF;
+
+// Keyboard filters
+/// Filter key down events
+pub const FILTER_KEY_DOWN: Filter = 0x01;
+/// Filter key up events
+pub const FILTER_KEY_UP: Filter = 0x02;
+/// Filter E0 extended keys
+pub const FILTER_KEY_E0: Filter = 0x08;
+/// Filter E1 extended keys
+pub const FILTER_KEY_E1: Filter = 0x016;
+
+// Mouse button filters
+/// Filter left mouse button down
+pub const FILTER_MOUSE_LEFT_BUTTON_DOWN: Filter = 0x001;
+/// Filter left mouse button up
+pub const FILTER_MOUSE_LEFT_BUTTON_UP: Filter = 0x002;
+/// Filter right mouse button down
+pub const FILTER_MOUSE_RIGHT_BUTTON_DOWN: Filter = 0x004;
+/// Filter right mouse button up
+pub const FILTER_MOUSE_RIGHT_BUTTON_UP: Filter = 0x008;
+/// Filter middle mouse button down
+pub const FILTER_MOUSE_MIDDLE_BUTTON_DOWN: Filter = 0x010;
+/// Filter middle mouse button up
+pub const FILTER_MOUSE_MIDDLE_BUTTON_UP: Filter = 0x020;
+/// Filter mouse button 4 down
+pub const FILTER_MOUSE_BUTTON_4_DOWN: Filter = 0x040;
+/// Filter mouse button 4 up
+pub const FILTER_MOUSE_BUTTON_4_UP: Filter = 0x080;
+/// Filter mouse button 5 down
+pub const FILTER_MOUSE_BUTTON_5_DOWN: Filter = 0x100;
+/// Filter mouse button 5 up
+pub const FILTER_MOUSE_BUTTON_5_UP: Filter = 0x200;
+/// Filter mouse wheel
+pub const FILTER_MOUSE_WHEEL: Filter = 0x400;
+/// Filter mouse horizontal wheel
+pub const FILTER_MOUSE_HWHEEL: Filter = 0x800;
+/// Filter mouse movement
+pub const FILTER_MOUSE_MOVE: Filter = 0x1000;
+
+/// No keyboard filtering
+pub const FILTER_KEY_NONE: Filter = FILTER_NONE;
+/// Filter all keyboard events
+pub const FILTER_KEY_ALL: Filter = FILTER_ALL;
+/// No mouse filtering
+pub const FILTER_MOUSE_NONE: Filter = FILTER_NONE;
+/// Filter all mouse events
+pub const FILTER_MOUSE_ALL: Filter = FILTER_ALL;
 
 /// A keyboard stroke event
 #[derive(Debug, Clone, Copy)]
@@ -566,7 +549,7 @@ impl Context {
             .as_ref()
             .ok_or(InterceptionError::InvalidDevice)?;
 
-        let mut filter: Filter = Filter::NONE;
+        let mut filter: Filter = FILTER_NONE;
         let mut bytes_returned = 0;
 
         unsafe {
@@ -996,12 +979,12 @@ impl KeyStroke {
 
     /// Create a key down stroke
     pub fn down(code: u16) -> Self {
-        Self::new(code, KeyState::DOWN.bits() as u16)
+        Self::new(code, KEY_DOWN as u16)
     }
 
     /// Create a key up stroke
     pub fn up(code: u16) -> Self {
-        Self::new(code, KeyState::UP.bits() as u16)
+        Self::new(code, KEY_UP as u16)
     }
 }
 
@@ -1022,7 +1005,7 @@ impl MouseStroke {
     pub fn move_to(x: i32, y: i32) -> Self {
         Self {
             state: 0,
-            flags: MouseFlag::MOVE_ABSOLUTE.bits() as u16,
+            flags: MOUSE_MOVE_ABSOLUTE as u16,
             rolling: 0,
             x,
             y,
@@ -1057,7 +1040,7 @@ impl MouseStroke {
     /// Create a mouse wheel stroke
     pub fn wheel(delta: i16) -> Self {
         Self {
-            state: MouseState::WHEEL.bits() as u16,
+            state: MOUSE_WHEEL as u16,
             flags: 0,
             rolling: delta,
             x: 0,
@@ -1117,39 +1100,40 @@ mod tests {
     fn test_stroke_creation() {
         let key_stroke = KeyStroke::down(0x41); // 'A' key
         assert_eq!(key_stroke.code, 0x41);
-        assert_eq!(key_stroke.state, KeyState::DOWN.bits() as u16);
+        assert_eq!(key_stroke.state, KEY_DOWN as u16);
 
         let mouse_stroke = MouseStroke::move_to(100, 200);
         assert_eq!(mouse_stroke.x, 100);
         assert_eq!(mouse_stroke.y, 200);
-        assert_eq!(mouse_stroke.flags, MouseFlag::MOVE_ABSOLUTE.bits() as u16);
+        assert_eq!(mouse_stroke.flags, MOUSE_MOVE_ABSOLUTE as u16);
 
         let wheel_stroke = MouseStroke::wheel(120);
         assert_eq!(wheel_stroke.rolling, 120);
-        assert_eq!(wheel_stroke.state, MouseState::WHEEL.bits() as u16);
+        assert_eq!(wheel_stroke.state, MOUSE_WHEEL as u16);
     }
 
     #[test]
-    fn test_bitflag_combinations() {
-        // Test combining KeyState flags
-        let combined_key_state = KeyState::UP | KeyState::E0;
-        assert_eq!(combined_key_state.bits(), 0x01 | 0x02);
-        assert!(combined_key_state.contains(KeyState::UP));
-        assert!(combined_key_state.contains(KeyState::E0));
-        assert!(!combined_key_state.contains(KeyState::DOWN));
+    fn test_flag_combinations() {
+        // Test combining KeyState flags with bitwise operations
+        let combined_key_state = KEY_UP | KEY_E0;
+        assert_eq!(combined_key_state, 0x01 | 0x02);
+        assert!(combined_key_state & KEY_UP != 0);
+        assert!(combined_key_state & KEY_E0 != 0);
+        // KEY_DOWN is 0, so we test that we didn't accidentally include E1 instead
+        assert!(combined_key_state & KEY_E1 == 0);
 
-        // Test combining MouseState flags
-        let combined_mouse_state = MouseState::LEFT_BUTTON_DOWN | MouseState::WHEEL;
-        assert_eq!(combined_mouse_state.bits(), 0x001 | 0x400);
-        assert!(combined_mouse_state.contains(MouseState::LEFT_BUTTON_DOWN));
-        assert!(combined_mouse_state.contains(MouseState::WHEEL));
-        assert!(!combined_mouse_state.contains(MouseState::RIGHT_BUTTON_DOWN));
+        // Test combining MouseState flags with bitwise operations
+        let combined_mouse_state = MOUSE_LEFT_BUTTON_DOWN | MOUSE_WHEEL;
+        assert_eq!(combined_mouse_state, 0x001 | 0x400);
+        assert!(combined_mouse_state & MOUSE_LEFT_BUTTON_DOWN != 0);
+        assert!(combined_mouse_state & MOUSE_WHEEL != 0);
+        assert!(combined_mouse_state & MOUSE_RIGHT_BUTTON_DOWN == 0);
 
-        // Test combining InterceptionFilter flags
-        let combined_filter = Filter::KEY_UP | Filter::MOUSE_WHEEL;
-        assert_eq!(combined_filter.bits(), 0x02 | 0x400);
-        assert!(combined_filter.contains(Filter::KEY_UP));
-        assert!(combined_filter.contains(Filter::MOUSE_WHEEL));
-        assert!(!combined_filter.contains(Filter::KEY_DOWN));
+        // Test combining Filter flags with bitwise operations
+        let combined_filter = FILTER_KEY_UP | FILTER_MOUSE_WHEEL;
+        assert_eq!(combined_filter, 0x02 | 0x400);
+        assert!(combined_filter & FILTER_KEY_UP != 0);
+        assert!(combined_filter & FILTER_MOUSE_WHEEL != 0);
+        assert!(combined_filter & FILTER_KEY_DOWN == 0);
     }
 }

@@ -6,7 +6,7 @@
 //! **Note**: This requires the Interception driver to be installed on Windows.
 //! This example will only work on Windows systems.
 
-use interception_copilot::{Context, Filter, is_keyboard_device};
+use interception_copilot::{Context, FILTER_KEY_ALL, is_keyboard_device};
 
 #[cfg(windows)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let context = Context::new()?;
 
     // Set filter to capture all keyboard events
-    context.set_filter(is_keyboard_device, Filter::KEY_ALL)?;
+    context.set_filter(is_keyboard_device, FILTER_KEY_ALL)?;
 
     // Main event loop
     loop {
