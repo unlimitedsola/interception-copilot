@@ -37,14 +37,14 @@ use std::slice;
 use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_NONE;
 use windows_sys::Win32::{
     Foundation::{
-        CloseHandle, GetLastError, FALSE, HANDLE, INVALID_HANDLE_VALUE, TRUE, WAIT_FAILED,
+        CloseHandle, FALSE, GetLastError, HANDLE, INVALID_HANDLE_VALUE, TRUE, WAIT_FAILED,
         WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
     Storage::FileSystem::{CreateFileW, OPEN_EXISTING},
     System::{
-        Memory::{GetProcessHeap, HeapAlloc, HeapFree},
-        Threading::{CreateEventW, WaitForMultipleObjects, INFINITE},
         IO::DeviceIoControl,
+        Memory::{GetProcessHeap, HeapAlloc, HeapFree},
+        Threading::{CreateEventW, INFINITE, WaitForMultipleObjects},
     },
 };
 
@@ -357,7 +357,7 @@ impl DeviceContext {
             }
 
             // Set the event handle for the device
-            let event_handles = [unempty_event, ptr::null_mut()];
+            let event_handles = [unempty_event, ptr::null()];
             let mut bytes_returned = 0;
 
             let result = DeviceIoControl(
