@@ -4,7 +4,7 @@
 //! to capture and send mouse events in a type-safe manner.
 
 use interception_copilot::{
-    MouseDevice, FILTER_MOUSE_ALL, MOUSE_LEFT_BUTTON_DOWN, MOUSE_LEFT_BUTTON_UP, MouseStroke,
+    FILTER_MOUSE_ALL, MOUSE_LEFT_BUTTON_DOWN, MOUSE_LEFT_BUTTON_UP, MouseDevice, MouseStroke,
 };
 
 #[cfg(windows)]
@@ -85,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Synthetic click sent to mouse {}!", first_mouse.index());
                 }
             }
-            
+
             last_synthetic = std::time::Instant::now();
         }
 
