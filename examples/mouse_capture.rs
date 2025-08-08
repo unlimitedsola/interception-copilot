@@ -56,9 +56,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if event_count > 0 && event_count % 10 == 0 {
                 println!("Sending synthetic mouse click...");
 
-                let click_down =
-                    Stroke::from(MouseStroke::button_down(MouseState::LEFT_BUTTON_DOWN));
-                let click_up = Stroke::from(MouseStroke::button_up(MouseState::LEFT_BUTTON_UP));
+                let click_down = Stroke::from(MouseStroke::button_down(
+                    MouseState::LEFT_BUTTON_DOWN.bits(),
+                ));
+                let click_up =
+                    Stroke::from(MouseStroke::button_up(MouseState::LEFT_BUTTON_UP.bits()));
 
                 // Send to first mouse device
                 if let Some(first_mouse) = (0..10).map(mouse).find(|&d| is_mouse_device(d)) {
