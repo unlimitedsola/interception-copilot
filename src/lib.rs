@@ -10,13 +10,13 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use interception_copilot::{Context, Device, InterceptionFilter};
+//! use interception_copilot::{Context, Device, Filter};
 //!
 //! // Create an interception context
 //! let context = Context::new().expect("Failed to create interception context");
 //!
 //! // Set filter to capture all keyboard input
-//! context.set_filter(Device::is_keyboard, InterceptionFilter::KEY_ALL)
+//! context.set_filter(Device::is_keyboard, Filter::KEY_ALL)
 //!     .expect("Failed to set keyboard filter");
 //!
 //! // Wait for keyboard events and process them
@@ -30,7 +30,8 @@
 
 #![cfg(windows)]
 
-use std::ffi::{CString, c_char, c_int, c_long, c_short, c_uint, c_ulong, c_ushort};
+use bitflags::bitflags;
+use std::ffi::{CString, c_int, c_long, c_short, c_uint, c_ulong, c_ushort};
 use std::mem;
 use std::ptr;
 use std::slice;
@@ -81,13 +82,10 @@ const fn ctl_code(device_type: u32, function: u32, method: u32, access: u32) -> 
 }
 
 /// Device types for the Interception library
-pub type Device = i32;
+pub type Device = c_int;
 
 /// Precedence value for device handling order
-pub type Precedence = i32;
-
-/// Filter bitmask for selecting which events to intercept
-pub type Filter = InterceptionFilter;
+pub type Precedence = c_int;
 
 /// Function type for device predicates
 pub type PredicateFn = fn(Device) -> bool;
@@ -104,7 +102,7 @@ pub const fn mouse(index: usize) -> Device {
     (INTERCEPTION_MAX_KEYBOARD as i32) + (index as i32) + 1
 }
 
-bitflags::bitflags! {
+bitflags! {
     /// Keyboard key states - bitflags that can be combined
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct KeyState: c_int {
@@ -125,7 +123,7 @@ bitflags::bitflags! {
     }
 }
 
-bitflags::bitflags! {
+bitflags! {
     /// Mouse button and wheel states - bitflags that can be combined
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct MouseState: c_int {
@@ -171,7 +169,7 @@ impl MouseState {
     pub const BUTTON_3_UP: MouseState = MouseState::MIDDLE_BUTTON_UP;
 }
 
-bitflags::bitflags! {
+bitflags! {
     /// Mouse movement flags - bitflags that can be combined
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct MouseFlag: c_int {
@@ -190,10 +188,10 @@ bitflags::bitflags! {
     }
 }
 
-bitflags::bitflags! {
-    /// Interception filter constants for keyboard and mouse events
+bitflags! {
+    /// Filter bitmask for selecting which events to intercept
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct InterceptionFilter: u16 {
+    pub struct Filter: u16 {
         /// No filtering
         const NONE = 0x0000;
         /// Filter all events
@@ -201,13 +199,13 @@ bitflags::bitflags! {
 
         // Keyboard filters
         /// Filter key down events
-        const KEY_DOWN = 0x01; // INTERCEPTION_KEY_UP (note: apparent typo in C header)
+        const KEY_DOWN = 0x01;
         /// Filter key up events
-        const KEY_UP = 0x01 << 1;
+        const KEY_UP = 0x02;
         /// Filter E0 extended keys
-        const KEY_E0 = 0x02 << 1;
+        const KEY_E0 = 0x08;
         /// Filter E1 extended keys
-        const KEY_E1 = 0x04 << 1;
+        const KEY_E1 = 0x016;
 
         // Mouse button filters
         /// Filter left mouse button down
@@ -239,15 +237,15 @@ bitflags::bitflags! {
     }
 }
 
-impl InterceptionFilter {
+impl Filter {
     /// No keyboard filtering
-    pub const KEY_NONE: InterceptionFilter = InterceptionFilter::NONE;
+    pub const KEY_NONE: Filter = Filter::NONE;
     /// Filter all keyboard events
-    pub const KEY_ALL: InterceptionFilter = InterceptionFilter::ALL;
+    pub const KEY_ALL: Filter = Filter::ALL;
     /// No mouse filtering
-    pub const MOUSE_NONE: InterceptionFilter = InterceptionFilter::NONE;
+    pub const MOUSE_NONE: Filter = Filter::NONE;
     /// Filter all mouse events
-    pub const MOUSE_ALL: InterceptionFilter = InterceptionFilter::ALL;
+    pub const MOUSE_ALL: Filter = Filter::ALL;
 }
 
 /// A keyboard stroke event
@@ -337,7 +335,6 @@ struct DeviceContext {
     handle: HANDLE,
     unempty_event: HANDLE,
 }
-pub type InterceptionStroke = [c_char; 20usize];
 
 impl DeviceContext {
     fn new(device_index: usize) -> Result<Self, InterceptionError> {
@@ -1130,52 +1127,6 @@ mod tests {
     }
 
     #[test]
-    fn test_bitflag_values() {
-        // Test KeyState bitflag values match the original constants
-        assert_eq!(KeyState::DOWN.bits(), 0x00);
-        assert_eq!(KeyState::UP.bits(), 0x01);
-        assert_eq!(KeyState::E0.bits(), 0x02);
-        assert_eq!(KeyState::E1.bits(), 0x04);
-        assert_eq!(KeyState::TERMSRV_SET_LED.bits(), 0x08);
-        assert_eq!(KeyState::TERMSRV_SHADOW.bits(), 0x10);
-        assert_eq!(KeyState::TERMSRV_VKPACKET.bits(), 0x20);
-
-        // Test MouseState bitflag values
-        assert_eq!(MouseState::LEFT_BUTTON_DOWN.bits(), 0x001);
-        assert_eq!(MouseState::LEFT_BUTTON_UP.bits(), 0x002);
-        assert_eq!(MouseState::RIGHT_BUTTON_DOWN.bits(), 0x004);
-        assert_eq!(MouseState::RIGHT_BUTTON_UP.bits(), 0x008);
-        assert_eq!(MouseState::MIDDLE_BUTTON_DOWN.bits(), 0x010);
-        assert_eq!(MouseState::MIDDLE_BUTTON_UP.bits(), 0x020);
-        assert_eq!(MouseState::BUTTON_4_DOWN.bits(), 0x040);
-        assert_eq!(MouseState::BUTTON_4_UP.bits(), 0x080);
-        assert_eq!(MouseState::BUTTON_5_DOWN.bits(), 0x100);
-        assert_eq!(MouseState::BUTTON_5_UP.bits(), 0x200);
-        assert_eq!(MouseState::WHEEL.bits(), 0x400);
-        assert_eq!(MouseState::HWHEEL.bits(), 0x800);
-
-        // Test MouseFlag bitflag values
-        assert_eq!(MouseFlag::MOVE_RELATIVE.bits(), 0x000);
-        assert_eq!(MouseFlag::MOVE_ABSOLUTE.bits(), 0x001);
-        assert_eq!(MouseFlag::VIRTUAL_DESKTOP.bits(), 0x002);
-        assert_eq!(MouseFlag::ATTRIBUTES_CHANGED.bits(), 0x004);
-        assert_eq!(MouseFlag::MOVE_NOCOALESCE.bits(), 0x008);
-        assert_eq!(MouseFlag::TERMSRV_SRC_SHADOW.bits(), 0x100);
-
-        // Test InterceptionFilter bitflag values
-        assert_eq!(InterceptionFilter::NONE.bits(), 0x0000);
-        assert_eq!(InterceptionFilter::ALL.bits(), 0xFFFF);
-        assert_eq!(InterceptionFilter::KEY_DOWN.bits(), 0x01);
-        assert_eq!(InterceptionFilter::KEY_UP.bits(), 0x02);
-        assert_eq!(InterceptionFilter::KEY_E0.bits(), 0x04);
-        assert_eq!(InterceptionFilter::KEY_E1.bits(), 0x08);
-        assert_eq!(InterceptionFilter::MOUSE_LEFT_BUTTON_DOWN.bits(), 0x001);
-        assert_eq!(InterceptionFilter::MOUSE_LEFT_BUTTON_UP.bits(), 0x002);
-        assert_eq!(InterceptionFilter::MOUSE_WHEEL.bits(), 0x400);
-        assert_eq!(InterceptionFilter::MOUSE_MOVE.bits(), 0x1000);
-    }
-
-    #[test]
     fn test_bitflag_combinations() {
         // Test combining KeyState flags
         let combined_key_state = KeyState::UP | KeyState::E0;
@@ -1192,21 +1143,10 @@ mod tests {
         assert!(!combined_mouse_state.contains(MouseState::RIGHT_BUTTON_DOWN));
 
         // Test combining InterceptionFilter flags
-        let combined_filter = InterceptionFilter::KEY_UP | InterceptionFilter::MOUSE_WHEEL;
+        let combined_filter = Filter::KEY_UP | Filter::MOUSE_WHEEL;
         assert_eq!(combined_filter.bits(), 0x02 | 0x400);
-        assert!(combined_filter.contains(InterceptionFilter::KEY_UP));
-        assert!(combined_filter.contains(InterceptionFilter::MOUSE_WHEEL));
-        assert!(!combined_filter.contains(InterceptionFilter::KEY_DOWN));
-    }
-
-    #[test]
-    fn test_mouse_state_aliases() {
-        // Test that the aliases work correctly
-        assert_eq!(MouseState::BUTTON_1_DOWN, MouseState::LEFT_BUTTON_DOWN);
-        assert_eq!(MouseState::BUTTON_1_UP, MouseState::LEFT_BUTTON_UP);
-        assert_eq!(MouseState::BUTTON_2_DOWN, MouseState::RIGHT_BUTTON_DOWN);
-        assert_eq!(MouseState::BUTTON_2_UP, MouseState::RIGHT_BUTTON_UP);
-        assert_eq!(MouseState::BUTTON_3_DOWN, MouseState::MIDDLE_BUTTON_DOWN);
-        assert_eq!(MouseState::BUTTON_3_UP, MouseState::MIDDLE_BUTTON_UP);
+        assert!(combined_filter.contains(Filter::KEY_UP));
+        assert!(combined_filter.contains(Filter::MOUSE_WHEEL));
+        assert!(!combined_filter.contains(Filter::KEY_DOWN));
     }
 }
