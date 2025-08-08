@@ -115,7 +115,7 @@ pub type Precedence = c_int;
 pub type PredicateFn = fn(Device) -> bool;
 
 /// Keyboard device constructor
-/// 
+///
 /// # Deprecation Notice
 /// This function is deprecated. Use `KeyboardDevice::new(index)` instead for type safety.
 #[deprecated(since = "0.1.0", note = "Use KeyboardDevice::new(index) instead")]
@@ -125,7 +125,7 @@ pub const fn keyboard(index: usize) -> Device {
 }
 
 /// Mouse device constructor  
-/// 
+///
 /// # Deprecation Notice
 /// This function is deprecated. Use `MouseDevice::new(index)` instead for type safety.
 #[deprecated(since = "0.1.0", note = "Use MouseDevice::new(index) instead")]
@@ -508,14 +508,14 @@ pub struct MouseDevice {
 }
 
 /// Main interception context for managing devices and input capture
-/// 
+///
 /// # Deprecation Notice
-/// 
+///
 /// This API is deprecated in favor of the type-safe `KeyboardDevice` and `MouseDevice` structs.
 /// The new API provides better type safety and prevents misuse of device operations.
-/// 
+///
 /// ## Migration Guide
-/// 
+///
 /// **Old API:**
 /// ```rust,no_run
 /// # use interception_copilot::*;
@@ -527,7 +527,7 @@ pub struct MouseDevice {
 /// }
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-/// 
+///
 /// **New API:**
 /// ```rust,no_run  
 /// # use interception_copilot::*;
@@ -1730,7 +1730,7 @@ pub fn wait_for_any(devices: &[AnyDevice]) -> Option<usize> {
 
 // Device utility functions - define as standalone functions since Device is a type alias
 /// Check if device ID is invalid
-/// 
+///
 /// # Deprecation Notice
 /// This function is deprecated. Use typed device structs instead for type safety.
 #[deprecated(since = "0.1.0", note = "Use KeyboardDevice or MouseDevice instead")]
@@ -1739,7 +1739,7 @@ pub fn is_invalid_device(device: Device) -> bool {
 }
 
 /// Check if device is a keyboard
-/// 
+///
 /// # Deprecation Notice
 /// This function is deprecated. Use `KeyboardDevice` directly for type safety.
 #[deprecated(since = "0.1.0", note = "Use KeyboardDevice instead")]
@@ -1748,7 +1748,7 @@ pub fn is_keyboard_device(device: Device) -> bool {
 }
 
 /// Check if device is a mouse
-/// 
+///
 /// # Deprecation Notice
 /// This function is deprecated. Use `MouseDevice` directly for type safety.
 #[deprecated(since = "0.1.0", note = "Use MouseDevice instead")]
@@ -1933,8 +1933,8 @@ mod tests {
         for i in 0..INTERCEPTION_MAX_KEYBOARD {
             // We can't actually create devices without the driver, but we can test the bounds checking
             match KeyboardDevice::new(i) {
-                Ok(_) => {}, // Device creation succeeded
-                Err(InterceptionError::CreateFile(_)) => {}, // Expected without driver
+                Ok(_) => {}                                 // Device creation succeeded
+                Err(InterceptionError::CreateFile(_)) => {} // Expected without driver
                 Err(e) => panic!("Unexpected error creating keyboard {i}: {e}"),
             }
         }
@@ -1948,8 +1948,8 @@ mod tests {
         // Test mouse device creation bounds
         for i in 0..INTERCEPTION_MAX_MOUSE {
             match MouseDevice::new(i) {
-                Ok(_) => {}, // Device creation succeeded
-                Err(InterceptionError::CreateFile(_)) => {}, // Expected without driver
+                Ok(_) => {}                                 // Device creation succeeded
+                Err(InterceptionError::CreateFile(_)) => {} // Expected without driver
                 Err(e) => panic!("Unexpected error creating mouse {i}: {e}"),
             }
         }
