@@ -8,7 +8,7 @@
 //! to the original C API and safe wrappers for convenient use.
 //!
 //! ## New Idiomatic API
-//! 
+//!
 //! The library provides type-safe device structures that prevent misuse:
 //!
 //! ```rust,no_run
@@ -115,12 +115,20 @@ pub type Precedence = c_int;
 pub type PredicateFn = fn(Device) -> bool;
 
 /// Keyboard device constructor
+/// 
+/// # Deprecation Notice
+/// This function is deprecated. Use `KeyboardDevice::new(index)` instead for type safety.
+#[deprecated(since = "0.1.0", note = "Use KeyboardDevice::new(index) instead")]
 #[inline]
 pub const fn keyboard(index: usize) -> Device {
     (index as i32) + 1
 }
 
 /// Mouse device constructor  
+/// 
+/// # Deprecation Notice
+/// This function is deprecated. Use `MouseDevice::new(index)` instead for type safety.
+#[deprecated(since = "0.1.0", note = "Use MouseDevice::new(index) instead")]
 #[inline]
 pub const fn mouse(index: usize) -> Device {
     (INTERCEPTION_MAX_KEYBOARD as i32) + (index as i32) + 1
@@ -500,6 +508,41 @@ pub struct MouseDevice {
 }
 
 /// Main interception context for managing devices and input capture
+/// 
+/// # Deprecation Notice
+/// 
+/// This API is deprecated in favor of the type-safe `KeyboardDevice` and `MouseDevice` structs.
+/// The new API provides better type safety and prevents misuse of device operations.
+/// 
+/// ## Migration Guide
+/// 
+/// **Old API:**
+/// ```rust,no_run
+/// # use interception_copilot::*;
+/// let context = Context::new()?;
+/// context.set_filter(is_keyboard_device, FILTER_KEY_ALL)?;
+/// if let Some(device) = context.wait() {
+///     let strokes = context.receive(device, 10)?;
+///     context.send(device, &strokes)?;
+/// }
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+/// 
+/// **New API:**
+/// ```rust,no_run  
+/// # use interception_copilot::*;
+/// let keyboard = KeyboardDevice::new(0)?;
+/// keyboard.set_filter(FILTER_KEY_ALL)?;
+/// if keyboard.has_input() {
+///     let strokes = keyboard.receive(10)?;
+///     keyboard.send(&strokes)?;
+/// }
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+#[deprecated(
+    since = "0.1.0",
+    note = "Use KeyboardDevice and MouseDevice for type-safe device operations"
+)]
 pub struct Context {
     devices: Vec<Option<DeviceContext>>,
 }
@@ -516,7 +559,7 @@ impl KeyboardDevice {
         if index >= INTERCEPTION_MAX_KEYBOARD {
             return Err(InterceptionError::InvalidDevice);
         }
-        
+
         let device_ctx = DeviceContext::new(index)?;
         Ok(KeyboardDevice { device_ctx, index })
     }
@@ -684,10 +727,10 @@ impl KeyboardDevice {
     /// Check if this device has input available (non-blocking)
     pub fn has_input(&self) -> bool {
         unsafe {
-            match WaitForMultipleObjects(1, &self.device_ctx.unempty_event, FALSE, 0) {
-                WAIT_OBJECT_0 => true,
-                _ => false,
-            }
+            matches!(
+                WaitForMultipleObjects(1, &self.device_ctx.unempty_event, FALSE, 0),
+                WAIT_OBJECT_0
+            )
         }
     }
 
@@ -753,7 +796,10 @@ impl KeyboardDevice {
         Ok((strokes_written as usize) / size_of::<KeyboardInputData>())
     }
 
-    fn receive_keyboard_strokes(&self, max_strokes: usize) -> Result<Vec<KeyboardInputData>, InterceptionError> {
+    fn receive_keyboard_strokes(
+        &self,
+        max_strokes: usize,
+    ) -> Result<Vec<KeyboardInputData>, InterceptionError> {
         // Allocate memory using Rust's Vec for safety
         let mut raw_strokes: Vec<KeyboardInputData> =
             vec![KeyboardInputData::default(); max_strokes];
@@ -795,7 +841,7 @@ impl MouseDevice {
         if index >= INTERCEPTION_MAX_MOUSE {
             return Err(InterceptionError::InvalidDevice);
         }
-        
+
         let device_index = INTERCEPTION_MAX_KEYBOARD + index;
         let device_ctx = DeviceContext::new(device_index)?;
         Ok(MouseDevice { device_ctx, index })
@@ -967,10 +1013,10 @@ impl MouseDevice {
     /// Check if this device has input available (non-blocking)
     pub fn has_input(&self) -> bool {
         unsafe {
-            match WaitForMultipleObjects(1, &self.device_ctx.unempty_event, FALSE, 0) {
-                WAIT_OBJECT_0 => true,
-                _ => false,
-            }
+            matches!(
+                WaitForMultipleObjects(1, &self.device_ctx.unempty_event, FALSE, 0),
+                WAIT_OBJECT_0
+            )
         }
     }
 
@@ -1039,7 +1085,10 @@ impl MouseDevice {
         Ok((strokes_written as usize) / size_of::<MouseInputData>())
     }
 
-    fn receive_mouse_strokes(&self, max_strokes: usize) -> Result<Vec<MouseInputData>, InterceptionError> {
+    fn receive_mouse_strokes(
+        &self,
+        max_strokes: usize,
+    ) -> Result<Vec<MouseInputData>, InterceptionError> {
         // Allocate memory using Rust's Vec for safety
         let mut raw_strokes: Vec<MouseInputData> = vec![MouseInputData::default(); max_strokes];
 
@@ -1681,16 +1730,28 @@ pub fn wait_for_any(devices: &[AnyDevice]) -> Option<usize> {
 
 // Device utility functions - define as standalone functions since Device is a type alias
 /// Check if device ID is invalid
+/// 
+/// # Deprecation Notice
+/// This function is deprecated. Use typed device structs instead for type safety.
+#[deprecated(since = "0.1.0", note = "Use KeyboardDevice or MouseDevice instead")]
 pub fn is_invalid_device(device: Device) -> bool {
     !is_keyboard_device(device) && !is_mouse_device(device)
 }
 
 /// Check if device is a keyboard
+/// 
+/// # Deprecation Notice
+/// This function is deprecated. Use `KeyboardDevice` directly for type safety.
+#[deprecated(since = "0.1.0", note = "Use KeyboardDevice instead")]
 pub fn is_keyboard_device(device: Device) -> bool {
     device >= keyboard(0) && device <= keyboard(INTERCEPTION_MAX_KEYBOARD - 1)
 }
 
 /// Check if device is a mouse
+/// 
+/// # Deprecation Notice
+/// This function is deprecated. Use `MouseDevice` directly for type safety.
+#[deprecated(since = "0.1.0", note = "Use MouseDevice instead")]
 pub fn is_mouse_device(device: Device) -> bool {
     device >= mouse(0) && device <= mouse(INTERCEPTION_MAX_MOUSE - 1)
 }
@@ -1864,5 +1925,39 @@ mod tests {
         assert!(combined_filter & FILTER_KEY_UP != 0);
         assert!(combined_filter & FILTER_MOUSE_WHEEL != 0);
         assert!(combined_filter & FILTER_KEY_DOWN == 0);
+    }
+
+    #[test]
+    fn test_typed_device_bounds_checking() {
+        // Test keyboard device creation bounds
+        for i in 0..INTERCEPTION_MAX_KEYBOARD {
+            // We can't actually create devices without the driver, but we can test the bounds checking
+            match KeyboardDevice::new(i) {
+                Ok(_) => {}, // Device creation succeeded
+                Err(InterceptionError::CreateFile(_)) => {}, // Expected without driver
+                Err(e) => panic!("Unexpected error creating keyboard {i}: {e}"),
+            }
+        }
+
+        // Test out-of-bounds keyboard device
+        assert!(matches!(
+            KeyboardDevice::new(INTERCEPTION_MAX_KEYBOARD),
+            Err(InterceptionError::InvalidDevice)
+        ));
+
+        // Test mouse device creation bounds
+        for i in 0..INTERCEPTION_MAX_MOUSE {
+            match MouseDevice::new(i) {
+                Ok(_) => {}, // Device creation succeeded
+                Err(InterceptionError::CreateFile(_)) => {}, // Expected without driver
+                Err(e) => panic!("Unexpected error creating mouse {i}: {e}"),
+            }
+        }
+
+        // Test out-of-bounds mouse device
+        assert!(matches!(
+            MouseDevice::new(INTERCEPTION_MAX_MOUSE),
+            Err(InterceptionError::InvalidDevice)
+        ));
     }
 }
