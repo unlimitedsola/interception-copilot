@@ -31,7 +31,7 @@
 #![cfg(windows)]
 
 use bitflags::bitflags;
-use std::ffi::{CString, c_int, c_long, c_short, c_uint, c_ulong, c_ushort};
+use std::ffi::{c_int, c_long, c_short, c_uint, c_ulong, c_ushort};
 use std::mem;
 use std::ptr;
 use std::slice;
@@ -40,11 +40,11 @@ use windows_sys::Win32::{
         CloseHandle, FALSE, GetLastError, HANDLE, INVALID_HANDLE_VALUE, TRUE, WAIT_FAILED,
         WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
-    Storage::FileSystem::{CreateFileA, OPEN_EXISTING},
+    Storage::FileSystem::{CreateFileW, OPEN_EXISTING},
     System::{
         IO::DeviceIoControl,
         Memory::{GetProcessHeap, HeapAlloc, HeapFree},
-        Threading::{CreateEventA, INFINITE, WaitForMultipleObjects},
+        Threading::{CreateEventW, INFINITE, WaitForMultipleObjects},
     },
 };
 
@@ -339,12 +339,15 @@ struct DeviceContext {
 impl DeviceContext {
     fn new(device_index: usize) -> Result<Self, InterceptionError> {
         let device_name = format!("\\\\.\\interception{device_index:02}");
-        let device_name_c =
-            CString::new(device_name).map_err(|_| InterceptionError::InvalidPath)?;
+        // Convert to UTF-16 for CreateFileW
+        let device_name_w: Vec<u16> = device_name
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
 
         unsafe {
-            let handle = CreateFileA(
-                device_name_c.as_ptr() as *const u8,
+            let handle = CreateFileW(
+                device_name_w.as_ptr(),
                 GENERIC_READ,
                 0,
                 ptr::null_mut(),
@@ -357,7 +360,7 @@ impl DeviceContext {
                 return Err(InterceptionError::CreateFile(GetLastError()));
             }
 
-            let unempty_event = CreateEventA(
+            let unempty_event = CreateEventW(
                 ptr::null_mut(),
                 TRUE,  // Manual reset
                 FALSE, // Initially non-signaled
