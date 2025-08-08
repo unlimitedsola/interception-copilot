@@ -37,13 +37,13 @@ use std::mem;
 use std::ptr;
 use windows_sys::Win32::{
     Foundation::{
-        CloseHandle, GetLastError, FALSE, GENERIC_READ, HANDLE, INVALID_HANDLE_VALUE, TRUE,
+        CloseHandle, FALSE, GENERIC_READ, GetLastError, HANDLE, INVALID_HANDLE_VALUE, TRUE,
         WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
     Storage::FileSystem::{CreateFileW, FILE_SHARE_NONE, OPEN_EXISTING},
     System::{
-        Threading::{CreateEventW, WaitForMultipleObjects, INFINITE},
         IO::DeviceIoControl,
+        Threading::{CreateEventW, INFINITE, WaitForMultipleObjects},
     },
 };
 
