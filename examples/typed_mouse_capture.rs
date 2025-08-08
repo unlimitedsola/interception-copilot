@@ -39,15 +39,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Main event loop
     loop {
         // Check each mouse device for input
-        for mouse in &mice {
-            if mouse.has_input() {
-                // Receive mouse strokes from the device
-                match mouse.receive(10) {
-                    Ok(strokes) => {
+        for (device_index, mouse) in mice.iter().enumerate() {
+            // Try to receive mouse strokes from the device
+            match mouse.receive(10) {
+                Ok(strokes) => {
+                    if !strokes.is_empty() {
                         for stroke in &strokes {
                             println!(
                                 "Mouse {} event #{}: pos=({}, {}), state=0x{:04X}, flags=0x{:04X}, rolling={}",
-                                mouse.index(),
+                                device_index,
                                 event_count,
                                 stroke.x,
                                 stroke.y,
@@ -61,8 +61,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // Send the strokes back so they still work normally
                         mouse.send(&strokes)?;
                     }
-                    Err(e) => eprintln!("Error receiving strokes: {e}"),
                 }
+                Err(e) => eprintln!("Error receiving strokes: {e}"),
             }
         }
 
@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Err(e) = first_mouse.send(&[click_up]) {
                     eprintln!("Error sending click up: {e}");
                 } else {
-                    println!("Synthetic click sent to mouse {}!", first_mouse.index());
+                    println!("Synthetic click sent to mouse 0!");
                 }
             }
 

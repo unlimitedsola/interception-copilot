@@ -35,11 +35,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Main event loop
     loop {
         // Check each keyboard device for input
-        for keyboard in &keyboards {
-            if keyboard.has_input() {
-                // Receive keyboard strokes from the device
-                match keyboard.receive(10) {
-                    Ok(strokes) => {
+        for (device_index, keyboard) in keyboards.iter().enumerate() {
+            // Try to receive keyboard strokes from the device
+            match keyboard.receive(10) {
+                Ok(strokes) => {
+                    if !strokes.is_empty() {
                         for stroke in &strokes {
                             let key_action = if stroke.state & 0x01 != 0 {
                                 "UP"
@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             };
                             println!(
                                 "Keyboard {} - Key {}: {} (state: 0x{:02X}, info: 0x{:08X})",
-                                keyboard.index(),
+                                device_index,
                                 key_action,
                                 stroke.code,
                                 stroke.state,
@@ -59,8 +59,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // Send the strokes back so they still work normally
                         keyboard.send(&strokes)?;
                     }
-                    Err(e) => eprintln!("Error receiving strokes: {e}"),
                 }
+                Err(e) => eprintln!("Error receiving strokes: {e}"),
             }
         }
 
