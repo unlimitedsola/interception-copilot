@@ -263,16 +263,6 @@ const _: () = {
         [mem::offset_of!(MouseStroke, information) - 16usize];
 };
 
-/// Union type for input strokes (keyboard or mouse)
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub union Stroke {
-    /// Keyboard stroke data
-    pub key: KeyStroke,
-    /// Mouse stroke data
-    pub mouse: MouseStroke,
-}
-
 // Internal Windows API structures matching the C implementation
 
 #[derive(Clone)]
@@ -310,14 +300,14 @@ impl Default for MouseInputData {
     }
 }
 
-struct DeviceContext {
+pub struct DeviceHandle {
     handle: HANDLE,
     unempty_event: HANDLE,
-    index: usize,
+    device_index: usize,
 }
 
-impl DeviceContext {
-    fn new(device_index: usize, logical_index: usize) -> Result<Self, InterceptionError> {
+impl DeviceHandle {
+    fn new(device_index: usize, _logical_index: usize) -> Result<Self, InterceptionError> {
         let device_name = format!("\\\\.\\interception{device_index:02}");
         // Convert to UTF-16 for CreateFileW
         let device_name_w: Vec<u16> = device_name
@@ -374,10 +364,10 @@ impl DeviceContext {
                 return Err(InterceptionError::DeviceIoControl(error));
             }
 
-            Ok(DeviceContext {
+            Ok(DeviceHandle {
                 handle,
                 unempty_event,
-                index: logical_index,
+                device_index,
             })
         }
     }
@@ -509,11 +499,18 @@ impl DeviceContext {
 
     /// Get the device index (0-9 for keyboards/mice)
     fn index(&self) -> usize {
-        self.index
+        // Compute logical index from device_index:
+        // Keyboards: 0-9 -> 0-9
+        // Mice: 10-19 -> 0-9
+        if self.device_index < INTERCEPTION_MAX_KEYBOARD {
+            self.device_index
+        } else {
+            self.device_index - INTERCEPTION_MAX_KEYBOARD
+        }
     }
 
     /// Check if this device has input available (non-blocking)
-    fn has_input(&self) -> bool {
+    pub fn has_input(&self) -> bool {
         unsafe {
             matches!(
                 WaitForMultipleObjects(1, &self.unempty_event, FALSE, 0),
@@ -546,7 +543,7 @@ impl DeviceContext {
     }
 }
 
-impl Drop for DeviceContext {
+impl Drop for DeviceHandle {
     fn drop(&mut self) {
         unsafe {
             if self.handle != INVALID_HANDLE_VALUE {
@@ -611,12 +608,12 @@ impl std::error::Error for InterceptionError {}
 
 /// A keyboard input device for intercepting and injecting keyboard events
 pub struct KeyboardDevice {
-    device_ctx: DeviceContext,
+    device_ctx: DeviceHandle,
 }
 
 /// A mouse input device for intercepting and injecting mouse events  
 pub struct MouseDevice {
-    device_ctx: DeviceContext,
+    device_ctx: DeviceHandle,
 }
 
 impl KeyboardDevice {
@@ -632,7 +629,7 @@ impl KeyboardDevice {
             return Err(InterceptionError::InvalidDevice);
         }
 
-        let device_ctx = DeviceContext::new(index, index)?;
+        let device_ctx = DeviceHandle::new(index, index)?;
         Ok(KeyboardDevice { device_ctx })
     }
 
@@ -662,9 +659,7 @@ impl KeyboardDevice {
             return Ok(0);
         }
 
-        // Convert KeyStroke to Stroke for internal compatibility
-        let stroke_unions: Vec<Stroke> = strokes.iter().map(|&ks| Stroke { key: ks }).collect();
-        let strokes_written = self.send_keyboard_strokes(&stroke_unions)?;
+        let strokes_written = self.send_keyboard_strokes(strokes)?;
         Ok(strokes_written)
     }
 
@@ -711,22 +706,25 @@ impl KeyboardDevice {
         self.device_ctx.wait_with_timeout(timeout_ms)
     }
 
-    fn send_keyboard_strokes(&self, strokes: &[Stroke]) -> Result<usize, InterceptionError> {
+    /// Get the underlying device handle for advanced operations
+    pub fn device_handle(&self) -> &DeviceHandle {
+        &self.device_ctx
+    }
+
+    fn send_keyboard_strokes(&self, strokes: &[KeyStroke]) -> Result<usize, InterceptionError> {
         // Allocate memory using Rust's Vec for safety
         let mut raw_strokes: Vec<KeyboardInputData> = Vec::with_capacity(strokes.len());
 
-        // Convert Stroke to KeyboardInputData
+        // Convert KeyStroke to KeyboardInputData
         for stroke in strokes.iter() {
-            unsafe {
-                let key_stroke = stroke.key;
-                raw_strokes.push(KeyboardInputData {
-                    unit_id: 0,
-                    make_code: key_stroke.code,
-                    flags: key_stroke.state,
-                    reserved: 0,
-                    extra_information: key_stroke.information,
-                });
-            }
+            let key_stroke = *stroke;
+            raw_strokes.push(KeyboardInputData {
+                unit_id: 0,
+                make_code: key_stroke.code,
+                flags: key_stroke.state,
+                reserved: 0,
+                extra_information: key_stroke.information,
+            });
         }
 
         let mut strokes_written = 0;
@@ -797,7 +795,7 @@ impl MouseDevice {
         }
 
         let device_index = INTERCEPTION_MAX_KEYBOARD + index;
-        let device_ctx = DeviceContext::new(device_index, index)?;
+        let device_ctx = DeviceHandle::new(device_index, index)?;
         Ok(MouseDevice { device_ctx })
     }
 
@@ -827,9 +825,7 @@ impl MouseDevice {
             return Ok(0);
         }
 
-        // Convert MouseStroke to Stroke for internal compatibility
-        let stroke_unions: Vec<Stroke> = strokes.iter().map(|&ms| Stroke { mouse: ms }).collect();
-        let strokes_written = self.send_mouse_strokes(&stroke_unions)?;
+        let strokes_written = self.send_mouse_strokes(strokes)?;
         Ok(strokes_written)
     }
 
@@ -879,25 +875,28 @@ impl MouseDevice {
         self.device_ctx.wait_with_timeout(timeout_ms)
     }
 
-    fn send_mouse_strokes(&self, strokes: &[Stroke]) -> Result<usize, InterceptionError> {
+    /// Get the underlying device handle for advanced operations
+    pub fn device_handle(&self) -> &DeviceHandle {
+        &self.device_ctx
+    }
+
+    fn send_mouse_strokes(&self, strokes: &[MouseStroke]) -> Result<usize, InterceptionError> {
         // Allocate memory using Rust's Vec for safety
         let mut raw_strokes: Vec<MouseInputData> = Vec::with_capacity(strokes.len());
 
-        // Convert Stroke to MouseInputData
+        // Convert MouseStroke to MouseInputData
         for stroke in strokes.iter() {
-            unsafe {
-                let mouse_stroke = stroke.mouse;
-                raw_strokes.push(MouseInputData {
-                    unit_id: 0,
-                    flags: mouse_stroke.flags,
-                    button_flags: mouse_stroke.state,
-                    button_data: mouse_stroke.rolling as u16,
-                    raw_buttons: 0,
-                    last_x: mouse_stroke.x,
-                    last_y: mouse_stroke.y,
-                    extra_information: mouse_stroke.information,
-                });
-            }
+            let mouse_stroke = *stroke;
+            raw_strokes.push(MouseInputData {
+                unit_id: 0,
+                flags: mouse_stroke.flags,
+                button_flags: mouse_stroke.state,
+                button_data: mouse_stroke.rolling as u16,
+                raw_buttons: 0,
+                last_x: mouse_stroke.x,
+                last_y: mouse_stroke.y,
+                extra_information: mouse_stroke.information,
+            });
         }
 
         let mut strokes_written = 0;
@@ -954,44 +953,21 @@ impl MouseDevice {
 }
 
 /// Enum representing either a keyboard or mouse device for waiting operations
-pub enum AnyDevice {
-    Keyboard(KeyboardDevice),
-    Mouse(MouseDevice),
-}
-
-impl AnyDevice {
-    /// Get the underlying event handle for waiting operations
-    fn event_handle(&self) -> HANDLE {
-        match self {
-            AnyDevice::Keyboard(kb) => kb.device_ctx.unempty_event,
-            AnyDevice::Mouse(mouse) => mouse.device_ctx.unempty_event,
-        }
-    }
-
-    /// Check if this device has input available (non-blocking)
-    pub fn has_input(&self) -> bool {
-        match self {
-            AnyDevice::Keyboard(kb) => kb.has_input(),
-            AnyDevice::Mouse(mouse) => mouse.has_input(),
-        }
-    }
-}
-
-/// Wait for input from any of the provided devices
+/// Wait for input from any of the provided device handles
 ///
 /// # Arguments
-/// * `devices` - Slice of devices to wait for
+/// * `device_handles` - Slice of device handles to wait for
 /// * `timeout_ms` - Timeout in milliseconds, or `INFINITE` for no timeout
 ///
 /// # Returns
 /// * `Some(index)` - Index of the device that has input available
 /// * `None` - Timeout occurred or error
-pub fn wait_for_devices(devices: &[AnyDevice], timeout_ms: u32) -> Option<usize> {
-    if devices.is_empty() {
+pub fn wait_for_devices(device_handles: &[&DeviceHandle], timeout_ms: u32) -> Option<usize> {
+    if device_handles.is_empty() {
         return None;
     }
 
-    let wait_handles: Vec<HANDLE> = devices.iter().map(|d| d.event_handle()).collect();
+    let wait_handles: Vec<HANDLE> = device_handles.iter().map(|d| d.unempty_event).collect();
 
     unsafe {
         let result = WaitForMultipleObjects(
@@ -1005,7 +981,7 @@ pub fn wait_for_devices(devices: &[AnyDevice], timeout_ms: u32) -> Option<usize>
             WAIT_FAILED | WAIT_TIMEOUT => None,
             index => {
                 let wait_index = (index - WAIT_OBJECT_0) as usize;
-                if wait_index < devices.len() {
+                if wait_index < device_handles.len() {
                     Some(wait_index)
                 } else {
                     None
@@ -1015,9 +991,9 @@ pub fn wait_for_devices(devices: &[AnyDevice], timeout_ms: u32) -> Option<usize>
     }
 }
 
-/// Wait indefinitely for input from any of the provided devices
-pub fn wait_for_any(devices: &[AnyDevice]) -> Option<usize> {
-    wait_for_devices(devices, INFINITE)
+/// Wait indefinitely for input from any of the provided device handles
+pub fn wait_for_any(device_handles: &[&DeviceHandle]) -> Option<usize> {
+    wait_for_devices(device_handles, INFINITE)
 }
 
 // Convenience constructors for strokes
@@ -1107,18 +1083,6 @@ impl MouseStroke {
 impl Default for MouseStroke {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl From<KeyStroke> for Stroke {
-    fn from(key: KeyStroke) -> Self {
-        Stroke { key }
-    }
-}
-
-impl From<MouseStroke> for Stroke {
-    fn from(mouse: MouseStroke) -> Self {
-        Stroke { mouse }
     }
 }
 
