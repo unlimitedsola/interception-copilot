@@ -1,6 +1,8 @@
-# Interception Copilot
+# Interception
 
-Interception Copilot is a Rust port of the [Interception library](https://github.com/oblitum/Interception) using `windows-sys` with a safe API for intercepting keyboard and mouse input on Windows systems.
+Interception is a Rust port of the [Interception library](https://github.com/oblitum/Interception) using `windows-sys` with a safe API for intercepting keyboard and mouse input on Windows systems.
+
+*Note: This repository is named "interception-copilot" to indicate it's a GitHub Copilot workspace, but the library itself is called "interception" - the same name as the original C implementation.*
 
 **ALWAYS reference these instructions first and fallback to search or bash commands only when you encounter unexpected information that does not match the info here.**
 
