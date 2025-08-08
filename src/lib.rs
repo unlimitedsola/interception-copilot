@@ -294,25 +294,37 @@ pub union Stroke {
 
 #[derive(Clone)]
 #[repr(C)]
-struct KeyboardInputData {
-    unit_id: c_ushort,
-    make_code: c_ushort,
-    flags: c_ushort,
-    reserved: c_ushort,
-    extra_information: c_uint,
+pub struct KeyboardInputData {
+    pub unit_id: c_ushort,
+    pub make_code: c_ushort,
+    pub flags: c_ushort,
+    pub reserved: c_ushort,
+    pub extra_information: c_uint,
+}
+
+impl Default for KeyboardInputData {
+    fn default() -> Self {
+        unsafe { mem::zeroed() }
+    }
 }
 
 #[derive(Clone)]
 #[repr(C)]
-struct MouseInputData {
-    unit_id: c_ushort,
-    flags: c_ushort,
-    button_flags: c_ushort,
-    button_data: c_ushort,
-    raw_buttons: c_ulong,
-    last_x: c_long,
-    last_y: c_long,
-    extra_information: c_ulong,
+pub struct MouseInputData {
+    pub unit_id: c_ushort,
+    pub flags: c_ushort,
+    pub button_flags: c_ushort,
+    pub button_data: c_ushort,
+    pub raw_buttons: c_ulong,
+    pub last_x: c_long,
+    pub last_y: c_long,
+    pub extra_information: c_ulong,
+}
+
+impl Default for MouseInputData {
+    fn default() -> Self {
+        unsafe { mem::zeroed() }
+    }
 }
 
 struct DeviceContext {
@@ -795,30 +807,117 @@ impl Context {
             .ok_or(InterceptionError::InvalidDevice)?;
 
         if is_keyboard_device(device) {
-            self.receive_keyboard_strokes(device_ctx, max_strokes)
+            let raw_strokes = self.receive_keyboard_strokes(device_ctx, max_strokes)?;
+            let mut strokes = Vec::with_capacity(raw_strokes.len());
+            for raw_stroke in &raw_strokes {
+                strokes.push(Stroke {
+                    key: KeyStroke {
+                        code: raw_stroke.make_code,
+                        state: raw_stroke.flags,
+                        information: raw_stroke.extra_information,
+                    },
+                });
+            }
+            Ok(strokes)
         } else if is_mouse_device(device) {
-            self.receive_mouse_strokes(device_ctx, max_strokes)
+            let raw_strokes = self.receive_mouse_strokes(device_ctx, max_strokes)?;
+            let mut strokes = Vec::with_capacity(raw_strokes.len());
+            for raw_stroke in &raw_strokes {
+                strokes.push(Stroke {
+                    mouse: MouseStroke {
+                        state: raw_stroke.button_flags,
+                        flags: raw_stroke.flags,
+                        rolling: raw_stroke.button_data as i16,
+                        x: raw_stroke.last_x,
+                        y: raw_stroke.last_y,
+                        information: raw_stroke.extra_information,
+                    },
+                });
+            }
+            Ok(strokes)
         } else {
             Err(InterceptionError::InvalidDevice)
         }
+    }
+
+    /// Receive keyboard strokes as raw data from a keyboard device
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - The keyboard device to receive from
+    /// * `max_strokes` - Maximum number of strokes to receive
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of raw keyboard input data on success
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the device is not valid, not a keyboard device, or if the operation fails
+    pub fn receive_keyboard_data(
+        &self,
+        device: Device,
+        max_strokes: usize,
+    ) -> Result<Vec<KeyboardInputData>, InterceptionError> {
+        if max_strokes == 0 {
+            return Ok(Vec::new());
+        }
+
+        if !is_keyboard_device(device) {
+            return Err(InterceptionError::InvalidDevice);
+        }
+
+        let device_index = self.validate_device(device)?;
+        let device_ctx = self.devices[device_index]
+            .as_ref()
+            .ok_or(InterceptionError::InvalidDevice)?;
+
+        self.receive_keyboard_strokes(device_ctx, max_strokes)
+    }
+
+    /// Receive mouse strokes as raw data from a mouse device
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - The mouse device to receive from
+    /// * `max_strokes` - Maximum number of strokes to receive
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of raw mouse input data on success
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the device is not valid, not a mouse device, or if the operation fails
+    pub fn receive_mouse_data(
+        &self,
+        device: Device,
+        max_strokes: usize,
+    ) -> Result<Vec<MouseInputData>, InterceptionError> {
+        if max_strokes == 0 {
+            return Ok(Vec::new());
+        }
+
+        if !is_mouse_device(device) {
+            return Err(InterceptionError::InvalidDevice);
+        }
+
+        let device_index = self.validate_device(device)?;
+        let device_ctx = self.devices[device_index]
+            .as_ref()
+            .ok_or(InterceptionError::InvalidDevice)?;
+
+        self.receive_mouse_strokes(device_ctx, max_strokes)
     }
 
     fn receive_keyboard_strokes(
         &self,
         device_ctx: &DeviceContext,
         max_strokes: usize,
-    ) -> Result<Vec<Stroke>, InterceptionError> {
+    ) -> Result<Vec<KeyboardInputData>, InterceptionError> {
         // Allocate memory using Rust's Vec for safety
-        let mut raw_strokes: Vec<KeyboardInputData> = vec![
-            KeyboardInputData {
-                unit_id: 0,
-                make_code: 0,
-                flags: 0,
-                reserved: 0,
-                extra_information: 0,
-            }; 
-            max_strokes
-        ];
+        let mut raw_strokes: Vec<KeyboardInputData> =
+            vec![KeyboardInputData::default(); max_strokes];
 
         let mut strokes_read = 0;
         unsafe {
@@ -841,18 +940,7 @@ impl Context {
         let strokes_count = (strokes_read as usize) / size_of::<KeyboardInputData>();
         raw_strokes.truncate(strokes_count);
 
-        let mut strokes = Vec::with_capacity(strokes_count);
-        for raw_stroke in &raw_strokes {
-            strokes.push(Stroke {
-                key: KeyStroke {
-                    code: raw_stroke.make_code,
-                    state: raw_stroke.flags,
-                    information: raw_stroke.extra_information,
-                },
-            });
-        }
-
-        Ok(strokes)
+        Ok(raw_strokes)
         // raw_strokes is automatically freed when it goes out of scope
     }
 
@@ -860,21 +948,9 @@ impl Context {
         &self,
         device_ctx: &DeviceContext,
         max_strokes: usize,
-    ) -> Result<Vec<Stroke>, InterceptionError> {
+    ) -> Result<Vec<MouseInputData>, InterceptionError> {
         // Allocate memory using Rust's Vec for safety
-        let mut raw_strokes: Vec<MouseInputData> = vec![
-            MouseInputData {
-                unit_id: 0,
-                flags: 0,
-                button_flags: 0,
-                button_data: 0,
-                raw_buttons: 0,
-                last_x: 0,
-                last_y: 0,
-                extra_information: 0,
-            };
-            max_strokes
-        ];
+        let mut raw_strokes: Vec<MouseInputData> = vec![MouseInputData::default(); max_strokes];
 
         let mut strokes_read = 0;
         unsafe {
@@ -897,21 +973,7 @@ impl Context {
         let strokes_count = (strokes_read as usize) / size_of::<MouseInputData>();
         raw_strokes.truncate(strokes_count);
 
-        let mut strokes = Vec::with_capacity(strokes_count);
-        for raw_stroke in &raw_strokes {
-            strokes.push(Stroke {
-                mouse: MouseStroke {
-                    state: raw_stroke.button_flags,
-                    flags: raw_stroke.flags,
-                    rolling: raw_stroke.button_data as i16,
-                    x: raw_stroke.last_x,
-                    y: raw_stroke.last_y,
-                    information: raw_stroke.extra_information,
-                },
-            });
-        }
-
-        Ok(strokes)
+        Ok(raw_strokes)
         // raw_strokes is automatically freed when it goes out of scope
     }
 
