@@ -33,7 +33,6 @@
 use std::ffi::{c_int, c_long, c_short, c_uint, c_ulong, c_ushort};
 use std::mem;
 use std::ptr;
-use std::slice;
 use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_NONE;
 use windows_sys::Win32::{
     Foundation::{
@@ -43,7 +42,6 @@ use windows_sys::Win32::{
     Storage::FileSystem::{CreateFileW, OPEN_EXISTING},
     System::{
         IO::DeviceIoControl,
-        Memory::{GetProcessHeap, HeapAlloc, HeapFree},
         Threading::{CreateEventW, INFINITE, WaitForMultipleObjects},
     },
 };
@@ -294,6 +292,7 @@ pub union Stroke {
 
 // Internal Windows API structures matching the C implementation
 
+#[derive(Clone)]
 #[repr(C)]
 struct KeyboardInputData {
     unit_id: c_ushort,
@@ -303,6 +302,7 @@ struct KeyboardInputData {
     extra_information: c_uint,
 }
 
+#[derive(Clone)]
 #[repr(C)]
 struct MouseInputData {
     unit_id: c_ushort,
@@ -693,49 +693,43 @@ impl Context {
         device_ctx: &DeviceContext,
         strokes: &[Stroke],
     ) -> Result<usize, InterceptionError> {
-        unsafe {
-            let heap = GetProcessHeap();
-            let raw_strokes_ptr = HeapAlloc(heap, 0, strokes.len() * size_of::<KeyboardInputData>())
-                as *mut KeyboardInputData;
+        // Allocate memory using Rust's Vec for safety
+        let mut raw_strokes: Vec<KeyboardInputData> = Vec::with_capacity(strokes.len());
 
-            if raw_strokes_ptr.is_null() {
-                return Err(InterceptionError::MemoryAllocation);
-            }
-
-            let raw_strokes = slice::from_raw_parts_mut(raw_strokes_ptr, strokes.len());
-
-            // Convert Stroke to KeyboardInputData
-            for (i, stroke) in strokes.iter().enumerate() {
+        // Convert Stroke to KeyboardInputData
+        for stroke in strokes.iter() {
+            unsafe {
                 let key_stroke = stroke.key;
-                raw_strokes[i] = KeyboardInputData {
+                raw_strokes.push(KeyboardInputData {
                     unit_id: 0,
                     make_code: key_stroke.code,
                     flags: key_stroke.state,
                     reserved: 0,
                     extra_information: key_stroke.information,
-                };
+                });
             }
+        }
 
-            let mut strokes_written = 0;
+        let mut strokes_written = 0;
+        unsafe {
             let result = DeviceIoControl(
                 device_ctx.handle,
                 IOCTL_WRITE,
-                raw_strokes_ptr as *const _,
-                (strokes.len() * size_of::<KeyboardInputData>()) as u32,
+                raw_strokes.as_ptr() as *const _,
+                (raw_strokes.len() * size_of::<KeyboardInputData>()) as u32,
                 ptr::null_mut(),
                 0,
                 &mut strokes_written,
                 ptr::null_mut(),
             );
 
-            HeapFree(heap, 0, raw_strokes_ptr as *mut _);
-
             if result == 0 {
                 return Err(InterceptionError::DeviceIoControl(GetLastError()));
             }
-
-            Ok((strokes_written as usize) / size_of::<KeyboardInputData>())
         }
+
+        Ok((strokes_written as usize) / size_of::<KeyboardInputData>())
+        // raw_strokes is automatically freed when it goes out of scope
     }
 
     fn send_mouse_strokes(
@@ -743,21 +737,14 @@ impl Context {
         device_ctx: &DeviceContext,
         strokes: &[Stroke],
     ) -> Result<usize, InterceptionError> {
-        unsafe {
-            let heap = GetProcessHeap();
-            let raw_strokes_ptr = HeapAlloc(heap, 0, strokes.len() * size_of::<MouseInputData>())
-                as *mut MouseInputData;
+        // Allocate memory using Rust's Vec for safety
+        let mut raw_strokes: Vec<MouseInputData> = Vec::with_capacity(strokes.len());
 
-            if raw_strokes_ptr.is_null() {
-                return Err(InterceptionError::MemoryAllocation);
-            }
-
-            let raw_strokes = slice::from_raw_parts_mut(raw_strokes_ptr, strokes.len());
-
-            // Convert Stroke to MouseInputData
-            for (i, stroke) in strokes.iter().enumerate() {
+        // Convert Stroke to MouseInputData
+        for stroke in strokes.iter() {
+            unsafe {
                 let mouse_stroke = stroke.mouse;
-                raw_strokes[i] = MouseInputData {
+                raw_strokes.push(MouseInputData {
                     unit_id: 0,
                     flags: mouse_stroke.flags,
                     button_flags: mouse_stroke.state,
@@ -766,29 +753,30 @@ impl Context {
                     last_x: mouse_stroke.x,
                     last_y: mouse_stroke.y,
                     extra_information: mouse_stroke.information,
-                };
+                });
             }
+        }
 
-            let mut strokes_written = 0;
+        let mut strokes_written = 0;
+        unsafe {
             let result = DeviceIoControl(
                 device_ctx.handle,
                 IOCTL_WRITE,
-                raw_strokes_ptr as *const _,
-                (strokes.len() * size_of::<MouseInputData>()) as u32,
+                raw_strokes.as_ptr() as *const _,
+                (raw_strokes.len() * size_of::<MouseInputData>()) as u32,
                 ptr::null_mut(),
                 0,
                 &mut strokes_written,
                 ptr::null_mut(),
             );
 
-            HeapFree(heap, 0, raw_strokes_ptr as *mut _);
-
             if result == 0 {
                 return Err(InterceptionError::DeviceIoControl(GetLastError()));
             }
-
-            Ok((strokes_written as usize) / size_of::<MouseInputData>())
         }
+
+        Ok((strokes_written as usize) / size_of::<MouseInputData>())
+        // raw_strokes is automatically freed when it goes out of scope
     }
 
     /// Receive strokes from a device
@@ -820,49 +808,52 @@ impl Context {
         device_ctx: &DeviceContext,
         max_strokes: usize,
     ) -> Result<Vec<Stroke>, InterceptionError> {
+        // Allocate memory using Rust's Vec for safety
+        let mut raw_strokes: Vec<KeyboardInputData> = vec![
+            KeyboardInputData {
+                unit_id: 0,
+                make_code: 0,
+                flags: 0,
+                reserved: 0,
+                extra_information: 0,
+            }; 
+            max_strokes
+        ];
+
+        let mut strokes_read = 0;
         unsafe {
-            let heap = GetProcessHeap();
-            let raw_strokes_ptr = HeapAlloc(heap, 0, max_strokes * size_of::<KeyboardInputData>())
-                as *mut KeyboardInputData;
-
-            if raw_strokes_ptr.is_null() {
-                return Err(InterceptionError::MemoryAllocation);
-            }
-
-            let mut strokes_read = 0;
             let result = DeviceIoControl(
                 device_ctx.handle,
                 IOCTL_READ,
                 ptr::null(),
                 0,
-                raw_strokes_ptr as *mut _,
+                raw_strokes.as_mut_ptr() as *mut _,
                 (max_strokes * size_of::<KeyboardInputData>()) as u32,
                 &mut strokes_read,
                 ptr::null_mut(),
             );
 
             if result == 0 {
-                HeapFree(heap, 0, raw_strokes_ptr as *mut _);
                 return Err(InterceptionError::DeviceIoControl(GetLastError()));
             }
-
-            let strokes_count = (strokes_read as usize) / size_of::<KeyboardInputData>();
-            let raw_strokes = slice::from_raw_parts(raw_strokes_ptr, strokes_count);
-
-            let mut strokes = Vec::with_capacity(strokes_count);
-            for raw_stroke in raw_strokes {
-                strokes.push(Stroke {
-                    key: KeyStroke {
-                        code: raw_stroke.make_code,
-                        state: raw_stroke.flags,
-                        information: raw_stroke.extra_information,
-                    },
-                });
-            }
-
-            HeapFree(heap, 0, raw_strokes_ptr as *mut _);
-            Ok(strokes)
         }
+
+        let strokes_count = (strokes_read as usize) / size_of::<KeyboardInputData>();
+        raw_strokes.truncate(strokes_count);
+
+        let mut strokes = Vec::with_capacity(strokes_count);
+        for raw_stroke in &raw_strokes {
+            strokes.push(Stroke {
+                key: KeyStroke {
+                    code: raw_stroke.make_code,
+                    state: raw_stroke.flags,
+                    information: raw_stroke.extra_information,
+                },
+            });
+        }
+
+        Ok(strokes)
+        // raw_strokes is automatically freed when it goes out of scope
     }
 
     fn receive_mouse_strokes(
@@ -870,52 +861,58 @@ impl Context {
         device_ctx: &DeviceContext,
         max_strokes: usize,
     ) -> Result<Vec<Stroke>, InterceptionError> {
+        // Allocate memory using Rust's Vec for safety
+        let mut raw_strokes: Vec<MouseInputData> = vec![
+            MouseInputData {
+                unit_id: 0,
+                flags: 0,
+                button_flags: 0,
+                button_data: 0,
+                raw_buttons: 0,
+                last_x: 0,
+                last_y: 0,
+                extra_information: 0,
+            };
+            max_strokes
+        ];
+
+        let mut strokes_read = 0;
         unsafe {
-            let heap = GetProcessHeap();
-            let raw_strokes_ptr = HeapAlloc(heap, 0, max_strokes * size_of::<MouseInputData>())
-                as *mut MouseInputData;
-
-            if raw_strokes_ptr.is_null() {
-                return Err(InterceptionError::MemoryAllocation);
-            }
-
-            let mut strokes_read = 0;
             let result = DeviceIoControl(
                 device_ctx.handle,
                 IOCTL_READ,
                 ptr::null(),
                 0,
-                raw_strokes_ptr as *mut _,
+                raw_strokes.as_mut_ptr() as *mut _,
                 (max_strokes * size_of::<MouseInputData>()) as u32,
                 &mut strokes_read,
                 ptr::null_mut(),
             );
 
             if result == 0 {
-                HeapFree(heap, 0, raw_strokes_ptr as *mut _);
                 return Err(InterceptionError::DeviceIoControl(GetLastError()));
             }
-
-            let strokes_count = (strokes_read as usize) / size_of::<MouseInputData>();
-            let raw_strokes = slice::from_raw_parts(raw_strokes_ptr, strokes_count);
-
-            let mut strokes = Vec::with_capacity(strokes_count);
-            for raw_stroke in raw_strokes {
-                strokes.push(Stroke {
-                    mouse: MouseStroke {
-                        state: raw_stroke.button_flags,
-                        flags: raw_stroke.flags,
-                        rolling: raw_stroke.button_data as i16,
-                        x: raw_stroke.last_x,
-                        y: raw_stroke.last_y,
-                        information: raw_stroke.extra_information,
-                    },
-                });
-            }
-
-            HeapFree(heap, 0, raw_strokes_ptr as *mut _);
-            Ok(strokes)
         }
+
+        let strokes_count = (strokes_read as usize) / size_of::<MouseInputData>();
+        raw_strokes.truncate(strokes_count);
+
+        let mut strokes = Vec::with_capacity(strokes_count);
+        for raw_stroke in &raw_strokes {
+            strokes.push(Stroke {
+                mouse: MouseStroke {
+                    state: raw_stroke.button_flags,
+                    flags: raw_stroke.flags,
+                    rolling: raw_stroke.button_data as i16,
+                    x: raw_stroke.last_x,
+                    y: raw_stroke.last_y,
+                    information: raw_stroke.extra_information,
+                },
+            });
+        }
+
+        Ok(strokes)
+        // raw_strokes is automatically freed when it goes out of scope
     }
 
     /// Get hardware ID for a device
