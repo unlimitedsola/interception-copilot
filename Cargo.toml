@@ -11,6 +11,7 @@ keywords = ["windows", "input", "keyboard", "mouse", "interception"]
 categories = ["os::windows-apis", "api-bindings"]
 
 [dependencies]
+bitflags = "2.9.1"
 windows-sys = { version = "0.60.2", features = [
     "Win32_Foundation",
     "Win32_System_IO",
