@@ -35,21 +35,17 @@
 use std::ffi::{c_int, c_long, c_short, c_uint, c_ulong, c_ushort};
 use std::mem;
 use std::ptr;
-use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_NONE;
 use windows_sys::Win32::{
     Foundation::{
-        CloseHandle, FALSE, GetLastError, HANDLE, INVALID_HANDLE_VALUE, TRUE, WAIT_FAILED,
-        WAIT_OBJECT_0, WAIT_TIMEOUT,
+        CloseHandle, GetLastError, FALSE, GENERIC_READ, HANDLE, INVALID_HANDLE_VALUE, TRUE,
+        WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
-    Storage::FileSystem::{CreateFileW, OPEN_EXISTING},
+    Storage::FileSystem::{CreateFileW, FILE_SHARE_NONE, OPEN_EXISTING},
     System::{
+        Threading::{CreateEventW, WaitForMultipleObjects, INFINITE},
         IO::DeviceIoControl,
-        Threading::{CreateEventW, INFINITE, WaitForMultipleObjects},
     },
 };
-
-// Add GENERIC_READ constant since it seems to be missing from windows-sys
-const GENERIC_READ: u32 = 0x80000000;
 
 // Constants from the original C header
 const INTERCEPTION_MAX_KEYBOARD: usize = 10;
@@ -85,7 +81,6 @@ pub type Precedence = c_int;
 
 /// Keyboard key state flags
 pub type KeyState = c_int;
-
 /// Key down event
 pub const KEY_DOWN: KeyState = 0x00;
 /// Key up event
@@ -103,7 +98,6 @@ pub const KEY_TERMSRV_VKPACKET: KeyState = 0x20;
 
 /// Mouse button and wheel state flags  
 pub type MouseState = c_int;
-
 /// Left mouse button down
 pub const MOUSE_LEFT_BUTTON_DOWN: MouseState = 0x001;
 /// Left mouse button up
@@ -144,7 +138,6 @@ pub const MOUSE_BUTTON_3_UP: MouseState = MOUSE_MIDDLE_BUTTON_UP;
 
 /// Mouse movement flags
 pub type MouseFlag = c_int;
-
 /// Relative movement
 pub const MOUSE_MOVE_RELATIVE: MouseFlag = 0x000;
 /// Absolute movement
@@ -160,58 +153,58 @@ pub const MOUSE_TERMSRV_SRC_SHADOW: MouseFlag = 0x100;
 
 /// Filter bitmask for selecting which events to intercept
 pub type Filter = c_ushort;
-
 /// No filtering
 pub const FILTER_NONE: Filter = 0x0000;
 /// Filter all events
 pub const FILTER_ALL: Filter = 0xFFFF;
 
-// Keyboard filters
-/// Filter key down events
-pub const FILTER_KEY_DOWN: Filter = 0x01;
-/// Filter key up events
-pub const FILTER_KEY_UP: Filter = 0x02;
-/// Filter E0 extended keys
-pub const FILTER_KEY_E0: Filter = 0x08;
-/// Filter E1 extended keys
-pub const FILTER_KEY_E1: Filter = 0x016;
-
-// Mouse button filters
-/// Filter left mouse button down
-pub const FILTER_MOUSE_LEFT_BUTTON_DOWN: Filter = 0x001;
-/// Filter left mouse button up
-pub const FILTER_MOUSE_LEFT_BUTTON_UP: Filter = 0x002;
-/// Filter right mouse button down
-pub const FILTER_MOUSE_RIGHT_BUTTON_DOWN: Filter = 0x004;
-/// Filter right mouse button up
-pub const FILTER_MOUSE_RIGHT_BUTTON_UP: Filter = 0x008;
-/// Filter middle mouse button down
-pub const FILTER_MOUSE_MIDDLE_BUTTON_DOWN: Filter = 0x010;
-/// Filter middle mouse button up
-pub const FILTER_MOUSE_MIDDLE_BUTTON_UP: Filter = 0x020;
-/// Filter mouse button 4 down
-pub const FILTER_MOUSE_BUTTON_4_DOWN: Filter = 0x040;
-/// Filter mouse button 4 up
-pub const FILTER_MOUSE_BUTTON_4_UP: Filter = 0x080;
-/// Filter mouse button 5 down
-pub const FILTER_MOUSE_BUTTON_5_DOWN: Filter = 0x100;
-/// Filter mouse button 5 up
-pub const FILTER_MOUSE_BUTTON_5_UP: Filter = 0x200;
-/// Filter mouse wheel
-pub const FILTER_MOUSE_WHEEL: Filter = 0x400;
-/// Filter mouse horizontal wheel
-pub const FILTER_MOUSE_HWHEEL: Filter = 0x800;
-/// Filter mouse movement
-pub const FILTER_MOUSE_MOVE: Filter = 0x1000;
-
+/// Keyboard filters
+pub type KeyFilter = Filter;
 /// No keyboard filtering
-pub const FILTER_KEY_NONE: Filter = FILTER_NONE;
+pub const FILTER_KEY_NONE: KeyFilter = FILTER_NONE;
 /// Filter all keyboard events
-pub const FILTER_KEY_ALL: Filter = FILTER_ALL;
+pub const FILTER_KEY_ALL: KeyFilter = FILTER_ALL;
+/// Filter key down events
+pub const FILTER_KEY_DOWN: KeyFilter = 0x01;
+/// Filter key up events
+pub const FILTER_KEY_UP: KeyFilter = 0x02;
+/// Filter E0 extended keys
+pub const FILTER_KEY_E0: KeyFilter = 0x08;
+/// Filter E1 extended keys
+pub const FILTER_KEY_E1: KeyFilter = 0x016;
+
+/// Mouse button filters
+pub type MouseFilter = Filter;
 /// No mouse filtering
-pub const FILTER_MOUSE_NONE: Filter = FILTER_NONE;
+pub const FILTER_MOUSE_NONE: MouseFilter = FILTER_NONE;
 /// Filter all mouse events
-pub const FILTER_MOUSE_ALL: Filter = FILTER_ALL;
+pub const FILTER_MOUSE_ALL: MouseFilter = FILTER_ALL;
+/// Filter left mouse button down
+pub const FILTER_MOUSE_LEFT_BUTTON_DOWN: MouseFilter = 0x001;
+/// Filter left mouse button up
+pub const FILTER_MOUSE_LEFT_BUTTON_UP: MouseFilter = 0x002;
+/// Filter right mouse button down
+pub const FILTER_MOUSE_RIGHT_BUTTON_DOWN: MouseFilter = 0x004;
+/// Filter right mouse button up
+pub const FILTER_MOUSE_RIGHT_BUTTON_UP: MouseFilter = 0x008;
+/// Filter middle mouse button down
+pub const FILTER_MOUSE_MIDDLE_BUTTON_DOWN: MouseFilter = 0x010;
+/// Filter middle mouse button up
+pub const FILTER_MOUSE_MIDDLE_BUTTON_UP: MouseFilter = 0x020;
+/// Filter mouse button 4 down
+pub const FILTER_MOUSE_BUTTON_4_DOWN: MouseFilter = 0x040;
+/// Filter mouse button 4 up
+pub const FILTER_MOUSE_BUTTON_4_UP: MouseFilter = 0x080;
+/// Filter mouse button 5 down
+pub const FILTER_MOUSE_BUTTON_5_DOWN: MouseFilter = 0x100;
+/// Filter mouse button 5 up
+pub const FILTER_MOUSE_BUTTON_5_UP: MouseFilter = 0x200;
+/// Filter mouse wheel
+pub const FILTER_MOUSE_WHEEL: MouseFilter = 0x400;
+/// Filter mouse horizontal wheel
+pub const FILTER_MOUSE_HWHEEL: MouseFilter = 0x800;
+/// Filter mouse movement
+pub const FILTER_MOUSE_MOVE: MouseFilter = 0x1000;
 
 /// A keyboard stroke event
 #[derive(Debug, Clone, Copy)]
@@ -303,11 +296,10 @@ impl Default for MouseInputData {
 pub struct DeviceHandle {
     handle: HANDLE,
     unempty_event: HANDLE,
-    device_index: usize,
 }
 
 impl DeviceHandle {
-    fn new(device_index: usize, _logical_index: usize) -> Result<Self, InterceptionError> {
+    fn new(device_index: usize) -> Result<Self, InterceptionError> {
         let device_name = format!("\\\\.\\interception{device_index:02}");
         // Convert to UTF-16 for CreateFileW
         let device_name_w: Vec<u16> = device_name
@@ -367,7 +359,6 @@ impl DeviceHandle {
             Ok(DeviceHandle {
                 handle,
                 unempty_event,
-                device_index,
             })
         }
     }
@@ -497,18 +488,6 @@ impl DeviceHandle {
         }
     }
 
-    /// Get the device index (0-9 for keyboards/mice)
-    fn index(&self) -> usize {
-        // Compute logical index from device_index:
-        // Keyboards: 0-9 -> 0-9
-        // Mice: 10-19 -> 0-9
-        if self.device_index < INTERCEPTION_MAX_KEYBOARD {
-            self.device_index
-        } else {
-            self.device_index - INTERCEPTION_MAX_KEYBOARD
-        }
-    }
-
     /// Check if this device has input available (non-blocking)
     pub fn has_input(&self) -> bool {
         unsafe {
@@ -608,12 +587,12 @@ impl std::error::Error for InterceptionError {}
 
 /// A keyboard input device for intercepting and injecting keyboard events
 pub struct KeyboardDevice {
-    device_ctx: DeviceHandle,
+    handle: DeviceHandle,
 }
 
 /// A mouse input device for intercepting and injecting mouse events  
 pub struct MouseDevice {
-    device_ctx: DeviceHandle,
+    handle: DeviceHandle,
 }
 
 impl KeyboardDevice {
@@ -629,28 +608,28 @@ impl KeyboardDevice {
             return Err(InterceptionError::InvalidDevice);
         }
 
-        let device_ctx = DeviceHandle::new(index, index)?;
-        Ok(KeyboardDevice { device_ctx })
+        let handle = DeviceHandle::new(index)?;
+        Ok(KeyboardDevice { handle })
     }
 
     /// Set filter for this keyboard device
-    pub fn set_filter(&self, filter: Filter) -> Result<(), InterceptionError> {
-        self.device_ctx.set_filter(filter)
+    pub fn set_filter(&self, filter: KeyFilter) -> Result<(), InterceptionError> {
+        self.handle.set_filter(filter)
     }
 
     /// Get filter for this keyboard device
-    pub fn get_filter(&self) -> Result<Filter, InterceptionError> {
-        self.device_ctx.get_filter()
+    pub fn get_filter(&self) -> Result<KeyFilter, InterceptionError> {
+        self.handle.get_filter()
     }
 
     /// Set precedence for this keyboard device
     pub fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
-        self.device_ctx.set_precedence(precedence)
+        self.handle.set_precedence(precedence)
     }
 
     /// Get precedence for this keyboard device
     pub fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
-        self.device_ctx.get_precedence()
+        self.handle.get_precedence()
     }
 
     /// Send keyboard strokes to this device
@@ -683,32 +662,27 @@ impl KeyboardDevice {
 
     /// Get hardware ID for this keyboard device
     pub fn get_hardware_id(&self) -> Result<Vec<u8>, InterceptionError> {
-        self.device_ctx.get_hardware_id()
-    }
-
-    /// Get the keyboard index (0-9)
-    pub fn index(&self) -> usize {
-        self.device_ctx.index()
+        self.handle.get_hardware_id()
     }
 
     /// Check if this device has input available (non-blocking)
     pub fn has_input(&self) -> bool {
-        self.device_ctx.has_input()
+        self.handle.has_input()
     }
 
     /// Wait for input on this keyboard device
     pub fn wait(&self) -> Result<(), InterceptionError> {
-        self.device_ctx.wait()
+        self.handle.wait()
     }
 
     /// Wait for input on this keyboard device with timeout
     pub fn wait_with_timeout(&self, timeout_ms: u32) -> Result<bool, InterceptionError> {
-        self.device_ctx.wait_with_timeout(timeout_ms)
+        self.handle.wait_with_timeout(timeout_ms)
     }
 
     /// Get the underlying device handle for advanced operations
     pub fn device_handle(&self) -> &DeviceHandle {
-        &self.device_ctx
+        &self.handle
     }
 
     fn send_keyboard_strokes(&self, strokes: &[KeyStroke]) -> Result<usize, InterceptionError> {
@@ -730,7 +704,7 @@ impl KeyboardDevice {
         let mut strokes_written = 0;
         unsafe {
             let result = DeviceIoControl(
-                self.device_ctx.handle,
+                self.handle.handle,
                 IOCTL_WRITE,
                 raw_strokes.as_ptr() as *const _,
                 (raw_strokes.len() * size_of::<KeyboardInputData>()) as u32,
@@ -759,7 +733,7 @@ impl KeyboardDevice {
         let mut strokes_read = 0;
         unsafe {
             let result = DeviceIoControl(
-                self.device_ctx.handle,
+                self.handle.handle,
                 IOCTL_READ,
                 ptr::null(),
                 0,
@@ -795,28 +769,28 @@ impl MouseDevice {
         }
 
         let device_index = INTERCEPTION_MAX_KEYBOARD + index;
-        let device_ctx = DeviceHandle::new(device_index, index)?;
-        Ok(MouseDevice { device_ctx })
+        let handle = DeviceHandle::new(device_index)?;
+        Ok(MouseDevice { handle })
     }
 
     /// Set filter for this mouse device
-    pub fn set_filter(&self, filter: Filter) -> Result<(), InterceptionError> {
-        self.device_ctx.set_filter(filter)
+    pub fn set_filter(&self, filter: MouseFilter) -> Result<(), InterceptionError> {
+        self.handle.set_filter(filter)
     }
 
     /// Get filter for this mouse device
-    pub fn get_filter(&self) -> Result<Filter, InterceptionError> {
-        self.device_ctx.get_filter()
+    pub fn get_filter(&self) -> Result<MouseFilter, InterceptionError> {
+        self.handle.get_filter()
     }
 
     /// Set precedence for this mouse device
     pub fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
-        self.device_ctx.set_precedence(precedence)
+        self.handle.set_precedence(precedence)
     }
 
     /// Get precedence for this mouse device
     pub fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
-        self.device_ctx.get_precedence()
+        self.handle.get_precedence()
     }
 
     /// Send mouse strokes to this device
@@ -852,32 +826,27 @@ impl MouseDevice {
 
     /// Get hardware ID for this mouse device
     pub fn get_hardware_id(&self) -> Result<Vec<u8>, InterceptionError> {
-        self.device_ctx.get_hardware_id()
-    }
-
-    /// Get the mouse index (0-9)
-    pub fn index(&self) -> usize {
-        self.device_ctx.index()
+        self.handle.get_hardware_id()
     }
 
     /// Check if this device has input available (non-blocking)
     pub fn has_input(&self) -> bool {
-        self.device_ctx.has_input()
+        self.handle.has_input()
     }
 
     /// Wait for input on this mouse device
     pub fn wait(&self) -> Result<(), InterceptionError> {
-        self.device_ctx.wait()
+        self.handle.wait()
     }
 
     /// Wait for input on this mouse device with timeout
     pub fn wait_with_timeout(&self, timeout_ms: u32) -> Result<bool, InterceptionError> {
-        self.device_ctx.wait_with_timeout(timeout_ms)
+        self.handle.wait_with_timeout(timeout_ms)
     }
 
     /// Get the underlying device handle for advanced operations
     pub fn device_handle(&self) -> &DeviceHandle {
-        &self.device_ctx
+        &self.handle
     }
 
     fn send_mouse_strokes(&self, strokes: &[MouseStroke]) -> Result<usize, InterceptionError> {
@@ -902,7 +871,7 @@ impl MouseDevice {
         let mut strokes_written = 0;
         unsafe {
             let result = DeviceIoControl(
-                self.device_ctx.handle,
+                self.handle.handle,
                 IOCTL_WRITE,
                 raw_strokes.as_ptr() as *const _,
                 (raw_strokes.len() * size_of::<MouseInputData>()) as u32,
@@ -930,7 +899,7 @@ impl MouseDevice {
         let mut strokes_read = 0;
         unsafe {
             let result = DeviceIoControl(
-                self.device_ctx.handle,
+                self.handle.handle,
                 IOCTL_READ,
                 ptr::null(),
                 0,
