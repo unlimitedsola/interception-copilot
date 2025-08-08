@@ -7,16 +7,42 @@
 //! at a low level on Windows systems. This Rust port provides both unsafe bindings
 //! to the original C API and safe wrappers for convenient use.
 //!
-//! ## Example
+//! ## New Idiomatic API
+//! 
+//! The library provides type-safe device structures that prevent misuse:
 //!
 //! ```rust,no_run
-//! use interception_copilot::{Context, Device, Filter};
+//! use interception_copilot::{KeyboardDevice, MouseDevice, FILTER_KEY_ALL, FILTER_MOUSE_ALL};
+//!
+//! // Create type-safe keyboard device  
+//! let keyboard = KeyboardDevice::new(0).expect("Failed to create keyboard device");
+//! keyboard.set_filter(FILTER_KEY_ALL).expect("Failed to set keyboard filter");
+//!
+//! // Create type-safe mouse device
+//! let mouse = MouseDevice::new(0).expect("Failed to create mouse device");
+//! mouse.set_filter(FILTER_MOUSE_ALL).expect("Failed to set mouse filter");
+//!
+//! // Type safety: you can only send keyboard strokes to keyboard devices
+//! let key_strokes = vec![/* KeyStroke data */];
+//! keyboard.send(&key_strokes).expect("Failed to send keyboard strokes");
+//!
+//! // Type safety: you can only send mouse strokes to mouse devices  
+//! let mouse_strokes = vec![/* MouseStroke data */];
+//! mouse.send(&mouse_strokes).expect("Failed to send mouse strokes");
+//! ```
+//!
+//! ## Legacy API (Deprecated)
+//!
+//! The original Context-based API is still available for backward compatibility:
+//!
+//! ```rust,no_run
+//! use interception_copilot::{Context, Device, Filter, is_keyboard_device};
 //!
 //! // Create an interception context
 //! let context = Context::new().expect("Failed to create interception context");
 //!
 //! // Set filter to capture all keyboard input
-//! context.set_filter(Device::is_keyboard, Filter::KEY_ALL)
+//! context.set_filter(is_keyboard_device, Filter::KEY_ALL)
 //!     .expect("Failed to set keyboard filter");
 //!
 //! // Wait for keyboard events and process them
@@ -461,9 +487,585 @@ impl std::fmt::Display for InterceptionError {
 
 impl std::error::Error for InterceptionError {}
 
+/// A keyboard input device for intercepting and injecting keyboard events
+pub struct KeyboardDevice {
+    device_ctx: DeviceContext,
+    index: usize,
+}
+
+/// A mouse input device for intercepting and injecting mouse events  
+pub struct MouseDevice {
+    device_ctx: DeviceContext,
+    index: usize,
+}
+
 /// Main interception context for managing devices and input capture
 pub struct Context {
     devices: Vec<Option<DeviceContext>>,
+}
+
+impl KeyboardDevice {
+    /// Create a new keyboard device
+    ///
+    /// # Arguments
+    /// * `index` - Keyboard index (0-9)
+    ///
+    /// # Errors
+    /// Returns an error if the device cannot be created or if index is out of range
+    pub fn new(index: usize) -> Result<Self, InterceptionError> {
+        if index >= INTERCEPTION_MAX_KEYBOARD {
+            return Err(InterceptionError::InvalidDevice);
+        }
+        
+        let device_ctx = DeviceContext::new(index)?;
+        Ok(KeyboardDevice { device_ctx, index })
+    }
+
+    /// Set filter for this keyboard device
+    pub fn set_filter(&self, filter: Filter) -> Result<(), InterceptionError> {
+        let mut bytes_returned = 0;
+
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_SET_FILTER,
+                &filter as *const _ as *const _,
+                size_of::<Filter>() as u32,
+                ptr::null_mut(),
+                0,
+                &mut bytes_returned,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get filter for this keyboard device
+    pub fn get_filter(&self) -> Result<Filter, InterceptionError> {
+        let mut filter: Filter = FILTER_NONE;
+        let mut bytes_returned = 0;
+
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_GET_FILTER,
+                ptr::null(),
+                0,
+                &mut filter as *mut _ as *mut _,
+                size_of::<Filter>() as u32,
+                &mut bytes_returned,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        Ok(filter)
+    }
+
+    /// Set precedence for this keyboard device
+    pub fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
+        let mut bytes_returned = 0;
+
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_SET_PRECEDENCE,
+                &precedence as *const _ as *const _,
+                size_of::<Precedence>() as u32,
+                ptr::null_mut(),
+                0,
+                &mut bytes_returned,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get precedence for this keyboard device
+    pub fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
+        let mut precedence: Precedence = 0;
+        let mut bytes_returned = 0;
+
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_GET_PRECEDENCE,
+                ptr::null(),
+                0,
+                &mut precedence as *mut _ as *mut _,
+                size_of::<Precedence>() as u32,
+                &mut bytes_returned,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        Ok(precedence)
+    }
+
+    /// Send keyboard strokes to this device
+    pub fn send(&self, strokes: &[KeyStroke]) -> Result<usize, InterceptionError> {
+        if strokes.is_empty() {
+            return Ok(0);
+        }
+
+        // Convert KeyStroke to Stroke for internal compatibility
+        let stroke_unions: Vec<Stroke> = strokes.iter().map(|&ks| Stroke { key: ks }).collect();
+        let strokes_written = self.send_keyboard_strokes(&stroke_unions)?;
+        Ok(strokes_written)
+    }
+
+    /// Receive keyboard strokes from this device
+    pub fn receive(&self, max_strokes: usize) -> Result<Vec<KeyStroke>, InterceptionError> {
+        if max_strokes == 0 {
+            return Ok(Vec::new());
+        }
+
+        let raw_strokes = self.receive_keyboard_strokes(max_strokes)?;
+        let mut strokes = Vec::with_capacity(raw_strokes.len());
+        for raw_stroke in &raw_strokes {
+            strokes.push(KeyStroke {
+                code: raw_stroke.make_code,
+                state: raw_stroke.flags,
+                information: raw_stroke.extra_information,
+            });
+        }
+        Ok(strokes)
+    }
+
+    /// Get hardware ID for this keyboard device
+    pub fn get_hardware_id(&self) -> Result<Vec<u8>, InterceptionError> {
+        // Try with a reasonable buffer size first
+        let mut buffer = vec![0u8; 512];
+        let mut output_size = 0;
+
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_GET_HARDWARE_ID,
+                ptr::null(),
+                0,
+                buffer.as_mut_ptr() as *mut _,
+                buffer.len() as u32,
+                &mut output_size,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+
+            buffer.truncate(output_size as usize);
+            Ok(buffer)
+        }
+    }
+
+    /// Get the keyboard index (0-9)
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    /// Check if this device has input available (non-blocking)
+    pub fn has_input(&self) -> bool {
+        unsafe {
+            match WaitForMultipleObjects(1, &self.device_ctx.unempty_event, FALSE, 0) {
+                WAIT_OBJECT_0 => true,
+                _ => false,
+            }
+        }
+    }
+
+    /// Wait for input on this keyboard device
+    pub fn wait(&self) -> Result<(), InterceptionError> {
+        unsafe {
+            match WaitForMultipleObjects(1, &self.device_ctx.unempty_event, FALSE, INFINITE) {
+                WAIT_OBJECT_0 => Ok(()),
+                WAIT_FAILED => Err(InterceptionError::WaitFailed(GetLastError())),
+                _ => Err(InterceptionError::WaitFailed(0)),
+            }
+        }
+    }
+
+    /// Wait for input on this keyboard device with timeout
+    pub fn wait_with_timeout(&self, timeout_ms: u32) -> Result<bool, InterceptionError> {
+        unsafe {
+            match WaitForMultipleObjects(1, &self.device_ctx.unempty_event, FALSE, timeout_ms) {
+                WAIT_OBJECT_0 => Ok(true),
+                WAIT_TIMEOUT => Ok(false),
+                WAIT_FAILED => Err(InterceptionError::WaitFailed(GetLastError())),
+                _ => Err(InterceptionError::WaitFailed(0)),
+            }
+        }
+    }
+
+    fn send_keyboard_strokes(&self, strokes: &[Stroke]) -> Result<usize, InterceptionError> {
+        // Allocate memory using Rust's Vec for safety
+        let mut raw_strokes: Vec<KeyboardInputData> = Vec::with_capacity(strokes.len());
+
+        // Convert Stroke to KeyboardInputData
+        for stroke in strokes.iter() {
+            unsafe {
+                let key_stroke = stroke.key;
+                raw_strokes.push(KeyboardInputData {
+                    unit_id: 0,
+                    make_code: key_stroke.code,
+                    flags: key_stroke.state,
+                    reserved: 0,
+                    extra_information: key_stroke.information,
+                });
+            }
+        }
+
+        let mut strokes_written = 0;
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_WRITE,
+                raw_strokes.as_ptr() as *const _,
+                (raw_strokes.len() * size_of::<KeyboardInputData>()) as u32,
+                ptr::null_mut(),
+                0,
+                &mut strokes_written,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        Ok((strokes_written as usize) / size_of::<KeyboardInputData>())
+    }
+
+    fn receive_keyboard_strokes(&self, max_strokes: usize) -> Result<Vec<KeyboardInputData>, InterceptionError> {
+        // Allocate memory using Rust's Vec for safety
+        let mut raw_strokes: Vec<KeyboardInputData> =
+            vec![KeyboardInputData::default(); max_strokes];
+
+        let mut strokes_read = 0;
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_READ,
+                ptr::null(),
+                0,
+                raw_strokes.as_mut_ptr() as *mut _,
+                (max_strokes * size_of::<KeyboardInputData>()) as u32,
+                &mut strokes_read,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        let strokes_count = (strokes_read as usize) / size_of::<KeyboardInputData>();
+        raw_strokes.truncate(strokes_count);
+
+        Ok(raw_strokes)
+    }
+}
+
+impl MouseDevice {
+    /// Create a new mouse device
+    ///
+    /// # Arguments
+    /// * `index` - Mouse index (0-9)
+    ///
+    /// # Errors
+    /// Returns an error if the device cannot be created or if index is out of range
+    pub fn new(index: usize) -> Result<Self, InterceptionError> {
+        if index >= INTERCEPTION_MAX_MOUSE {
+            return Err(InterceptionError::InvalidDevice);
+        }
+        
+        let device_index = INTERCEPTION_MAX_KEYBOARD + index;
+        let device_ctx = DeviceContext::new(device_index)?;
+        Ok(MouseDevice { device_ctx, index })
+    }
+
+    /// Set filter for this mouse device
+    pub fn set_filter(&self, filter: Filter) -> Result<(), InterceptionError> {
+        let mut bytes_returned = 0;
+
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_SET_FILTER,
+                &filter as *const _ as *const _,
+                size_of::<Filter>() as u32,
+                ptr::null_mut(),
+                0,
+                &mut bytes_returned,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get filter for this mouse device
+    pub fn get_filter(&self) -> Result<Filter, InterceptionError> {
+        let mut filter: Filter = FILTER_NONE;
+        let mut bytes_returned = 0;
+
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_GET_FILTER,
+                ptr::null(),
+                0,
+                &mut filter as *mut _ as *mut _,
+                size_of::<Filter>() as u32,
+                &mut bytes_returned,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        Ok(filter)
+    }
+
+    /// Set precedence for this mouse device
+    pub fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
+        let mut bytes_returned = 0;
+
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_SET_PRECEDENCE,
+                &precedence as *const _ as *const _,
+                size_of::<Precedence>() as u32,
+                ptr::null_mut(),
+                0,
+                &mut bytes_returned,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get precedence for this mouse device
+    pub fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
+        let mut precedence: Precedence = 0;
+        let mut bytes_returned = 0;
+
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_GET_PRECEDENCE,
+                ptr::null(),
+                0,
+                &mut precedence as *mut _ as *mut _,
+                size_of::<Precedence>() as u32,
+                &mut bytes_returned,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        Ok(precedence)
+    }
+
+    /// Send mouse strokes to this device
+    pub fn send(&self, strokes: &[MouseStroke]) -> Result<usize, InterceptionError> {
+        if strokes.is_empty() {
+            return Ok(0);
+        }
+
+        // Convert MouseStroke to Stroke for internal compatibility
+        let stroke_unions: Vec<Stroke> = strokes.iter().map(|&ms| Stroke { mouse: ms }).collect();
+        let strokes_written = self.send_mouse_strokes(&stroke_unions)?;
+        Ok(strokes_written)
+    }
+
+    /// Receive mouse strokes from this device
+    pub fn receive(&self, max_strokes: usize) -> Result<Vec<MouseStroke>, InterceptionError> {
+        if max_strokes == 0 {
+            return Ok(Vec::new());
+        }
+
+        let raw_strokes = self.receive_mouse_strokes(max_strokes)?;
+        let mut strokes = Vec::with_capacity(raw_strokes.len());
+        for raw_stroke in &raw_strokes {
+            strokes.push(MouseStroke {
+                state: raw_stroke.button_flags,
+                flags: raw_stroke.flags,
+                rolling: raw_stroke.button_data as i16,
+                x: raw_stroke.last_x,
+                y: raw_stroke.last_y,
+                information: raw_stroke.extra_information,
+            });
+        }
+        Ok(strokes)
+    }
+
+    /// Get hardware ID for this mouse device
+    pub fn get_hardware_id(&self) -> Result<Vec<u8>, InterceptionError> {
+        // Try with a reasonable buffer size first
+        let mut buffer = vec![0u8; 512];
+        let mut output_size = 0;
+
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_GET_HARDWARE_ID,
+                ptr::null(),
+                0,
+                buffer.as_mut_ptr() as *mut _,
+                buffer.len() as u32,
+                &mut output_size,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+
+            buffer.truncate(output_size as usize);
+            Ok(buffer)
+        }
+    }
+
+    /// Get the mouse index (0-9)
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    /// Check if this device has input available (non-blocking)
+    pub fn has_input(&self) -> bool {
+        unsafe {
+            match WaitForMultipleObjects(1, &self.device_ctx.unempty_event, FALSE, 0) {
+                WAIT_OBJECT_0 => true,
+                _ => false,
+            }
+        }
+    }
+
+    /// Wait for input on this mouse device
+    pub fn wait(&self) -> Result<(), InterceptionError> {
+        unsafe {
+            match WaitForMultipleObjects(1, &self.device_ctx.unempty_event, FALSE, INFINITE) {
+                WAIT_OBJECT_0 => Ok(()),
+                WAIT_FAILED => Err(InterceptionError::WaitFailed(GetLastError())),
+                _ => Err(InterceptionError::WaitFailed(0)),
+            }
+        }
+    }
+
+    /// Wait for input on this mouse device with timeout
+    pub fn wait_with_timeout(&self, timeout_ms: u32) -> Result<bool, InterceptionError> {
+        unsafe {
+            match WaitForMultipleObjects(1, &self.device_ctx.unempty_event, FALSE, timeout_ms) {
+                WAIT_OBJECT_0 => Ok(true),
+                WAIT_TIMEOUT => Ok(false),
+                WAIT_FAILED => Err(InterceptionError::WaitFailed(GetLastError())),
+                _ => Err(InterceptionError::WaitFailed(0)),
+            }
+        }
+    }
+
+    fn send_mouse_strokes(&self, strokes: &[Stroke]) -> Result<usize, InterceptionError> {
+        // Allocate memory using Rust's Vec for safety
+        let mut raw_strokes: Vec<MouseInputData> = Vec::with_capacity(strokes.len());
+
+        // Convert Stroke to MouseInputData
+        for stroke in strokes.iter() {
+            unsafe {
+                let mouse_stroke = stroke.mouse;
+                raw_strokes.push(MouseInputData {
+                    unit_id: 0,
+                    flags: mouse_stroke.flags,
+                    button_flags: mouse_stroke.state,
+                    button_data: mouse_stroke.rolling as u16,
+                    raw_buttons: 0,
+                    last_x: mouse_stroke.x,
+                    last_y: mouse_stroke.y,
+                    extra_information: mouse_stroke.information,
+                });
+            }
+        }
+
+        let mut strokes_written = 0;
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_WRITE,
+                raw_strokes.as_ptr() as *const _,
+                (raw_strokes.len() * size_of::<MouseInputData>()) as u32,
+                ptr::null_mut(),
+                0,
+                &mut strokes_written,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        Ok((strokes_written as usize) / size_of::<MouseInputData>())
+    }
+
+    fn receive_mouse_strokes(&self, max_strokes: usize) -> Result<Vec<MouseInputData>, InterceptionError> {
+        // Allocate memory using Rust's Vec for safety
+        let mut raw_strokes: Vec<MouseInputData> = vec![MouseInputData::default(); max_strokes];
+
+        let mut strokes_read = 0;
+        unsafe {
+            let result = DeviceIoControl(
+                self.device_ctx.handle,
+                IOCTL_READ,
+                ptr::null(),
+                0,
+                raw_strokes.as_mut_ptr() as *mut _,
+                (max_strokes * size_of::<MouseInputData>()) as u32,
+                &mut strokes_read,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        let strokes_count = (strokes_read as usize) / size_of::<MouseInputData>();
+        raw_strokes.truncate(strokes_count);
+
+        Ok(raw_strokes)
+    }
 }
 
 impl Context {
@@ -1008,6 +1610,73 @@ impl Context {
             Ok(buffer)
         }
     }
+}
+
+/// Enum representing either a keyboard or mouse device for waiting operations
+pub enum AnyDevice {
+    Keyboard(KeyboardDevice),
+    Mouse(MouseDevice),
+}
+
+impl AnyDevice {
+    /// Get the underlying event handle for waiting operations
+    fn event_handle(&self) -> HANDLE {
+        match self {
+            AnyDevice::Keyboard(kb) => kb.device_ctx.unempty_event,
+            AnyDevice::Mouse(mouse) => mouse.device_ctx.unempty_event,
+        }
+    }
+
+    /// Check if this device has input available (non-blocking)
+    pub fn has_input(&self) -> bool {
+        match self {
+            AnyDevice::Keyboard(kb) => kb.has_input(),
+            AnyDevice::Mouse(mouse) => mouse.has_input(),
+        }
+    }
+}
+
+/// Wait for input from any of the provided devices
+///
+/// # Arguments
+/// * `devices` - Slice of devices to wait for
+/// * `timeout_ms` - Timeout in milliseconds, or `INFINITE` for no timeout
+///
+/// # Returns
+/// * `Some(index)` - Index of the device that has input available
+/// * `None` - Timeout occurred or error
+pub fn wait_for_devices(devices: &[AnyDevice], timeout_ms: u32) -> Option<usize> {
+    if devices.is_empty() {
+        return None;
+    }
+
+    let wait_handles: Vec<HANDLE> = devices.iter().map(|d| d.event_handle()).collect();
+
+    unsafe {
+        let result = WaitForMultipleObjects(
+            wait_handles.len() as u32,
+            wait_handles.as_ptr(),
+            FALSE, // Wait for any
+            timeout_ms,
+        );
+
+        match result {
+            WAIT_FAILED | WAIT_TIMEOUT => None,
+            index => {
+                let wait_index = (index - WAIT_OBJECT_0) as usize;
+                if wait_index < devices.len() {
+                    Some(wait_index)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
+/// Wait indefinitely for input from any of the provided devices
+pub fn wait_for_any(devices: &[AnyDevice]) -> Option<usize> {
+    wait_for_devices(devices, INFINITE)
 }
 
 // Device utility functions - define as standalone functions since Device is a type alias
