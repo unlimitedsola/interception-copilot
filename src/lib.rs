@@ -34,16 +34,17 @@ use std::ffi::{c_int, c_long, c_short, c_uint, c_ulong, c_ushort};
 use std::mem;
 use std::ptr;
 use std::slice;
+use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_NONE;
 use windows_sys::Win32::{
     Foundation::{
-        CloseHandle, FALSE, GetLastError, HANDLE, INVALID_HANDLE_VALUE, TRUE, WAIT_FAILED,
+        CloseHandle, GetLastError, FALSE, HANDLE, INVALID_HANDLE_VALUE, TRUE, WAIT_FAILED,
         WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
     Storage::FileSystem::{CreateFileW, OPEN_EXISTING},
     System::{
-        IO::DeviceIoControl,
         Memory::{GetProcessHeap, HeapAlloc, HeapFree},
-        Threading::{CreateEventW, INFINITE, WaitForMultipleObjects},
+        Threading::{CreateEventW, WaitForMultipleObjects, INFINITE},
+        IO::DeviceIoControl,
     },
 };
 
@@ -177,7 +178,7 @@ pub const MOUSE_MOVE_NOCOALESCE: MouseFlag = 0x008;
 pub const MOUSE_TERMSRV_SRC_SHADOW: MouseFlag = 0x100;
 
 /// Filter bitmask for selecting which events to intercept
-pub type Filter = u16;
+pub type Filter = c_ushort;
 
 /// No filtering
 pub const FILTER_NONE: Filter = 0x0000;
@@ -332,8 +333,8 @@ impl DeviceContext {
             let handle = CreateFileW(
                 device_name_w.as_ptr(),
                 GENERIC_READ,
-                0,
-                ptr::null_mut(),
+                FILE_SHARE_NONE,
+                ptr::null(),
                 OPEN_EXISTING,
                 0,
                 ptr::null_mut(),
@@ -344,7 +345,7 @@ impl DeviceContext {
             }
 
             let unempty_event = CreateEventW(
-                ptr::null_mut(),
+                ptr::null(),
                 TRUE,  // Manual reset
                 FALSE, // Initially non-signaled
                 ptr::null(),
