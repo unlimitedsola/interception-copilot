@@ -226,7 +226,7 @@ const _: () = {
     ["Offset of field: KeyStroke::information"][mem::offset_of!(KeyStroke, information) - 4usize];
 };
 
-/// A mouse stroke event  
+/// A mouse stroke event
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct MouseStroke {
@@ -590,7 +590,7 @@ pub struct KeyboardDevice {
     handle: DeviceHandle,
 }
 
-/// A mouse input device for intercepting and injecting mouse events  
+/// A mouse input device for intercepting and injecting mouse events
 pub struct MouseDevice {
     handle: DeviceHandle,
 }
