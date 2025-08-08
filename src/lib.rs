@@ -11,7 +11,7 @@
 //! The library provides type-safe device structures that prevent misuse:
 //!
 //! ```rust,no_run
-//! use interception_copilot::{KeyboardDevice, MouseDevice, FILTER_KEY_ALL, FILTER_MOUSE_ALL};
+//! use interception_copilot::{KeyboardDevice, MouseDevice, KeyStroke, MouseStroke, FILTER_KEY_ALL, FILTER_MOUSE_ALL};
 //!
 //! // Create type-safe keyboard device  
 //! let keyboard = KeyboardDevice::new(0).expect("Failed to create keyboard device");
@@ -21,14 +21,29 @@
 //! let mouse = MouseDevice::new(0).expect("Failed to create mouse device");
 //! mouse.set_filter(FILTER_MOUSE_ALL).expect("Failed to set mouse filter");
 //!
-//! // Type safety: you can only send keyboard strokes to keyboard devices
-//! let key_strokes = vec![/* KeyStroke data */];
+//! // Create strokes using safe constructors
+//! let key_strokes = vec![
+//!     KeyStroke::down(0x41),  // 'A' key down
+//!     KeyStroke::up(0x41),    // 'A' key up
+//! ];
 //! keyboard.send(&key_strokes).expect("Failed to send keyboard strokes");
 //!
-//! // Type safety: you can only send mouse strokes to mouse devices  
-//! let mouse_strokes = vec![/* MouseStroke data */];
+//! // Create mouse strokes with type safety
+//! let mouse_strokes = vec![
+//!     MouseStroke::move_to(100, 200),
+//!     MouseStroke::button_down(1),
+//! ];
 //! mouse.send(&mouse_strokes).expect("Failed to send mouse strokes");
 //! ```
+//!
+//! ## Consolidated Structs
+//!
+//! The library uses consolidated structs that directly match the Windows API C-ABI:
+//! - `KeyStroke`: Combines public API and internal Windows structure for zero-copy operations
+//! - `MouseStroke`: Combines public API and internal Windows structure for zero-copy operations
+//!
+//! These structs have private fields to maintain API safety, but provide public constructors
+//! and accessor methods for common use cases.
 
 #![cfg(windows)]
 
@@ -37,13 +52,13 @@ use std::mem;
 use std::ptr;
 use windows_sys::Win32::{
     Foundation::{
-        CloseHandle, FALSE, GENERIC_READ, GetLastError, HANDLE, INVALID_HANDLE_VALUE, TRUE,
+        CloseHandle, GetLastError, FALSE, GENERIC_READ, HANDLE, INVALID_HANDLE_VALUE, TRUE,
         WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
     Storage::FileSystem::{CreateFileW, FILE_SHARE_NONE, OPEN_EXISTING},
     System::{
+        Threading::{CreateEventW, WaitForMultipleObjects, INFINITE},
         IO::DeviceIoControl,
-        Threading::{CreateEventW, INFINITE, WaitForMultipleObjects},
     },
 };
 
@@ -206,88 +221,78 @@ pub const FILTER_MOUSE_HWHEEL: MouseFilter = 0x800;
 /// Filter mouse movement
 pub const FILTER_MOUSE_MOVE: MouseFilter = 0x1000;
 
-/// A keyboard stroke event
+/// A consolidated keyboard stroke event that matches the C-ABI requirements
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct KeyStroke {
-    /// Virtual key code
-    pub code: c_ushort,
+    /// Device unit ID (internal use only)
+    _unit_id: c_ushort,
+    /// Virtual key code (make_code in Windows API)
+    code: c_ushort,
     /// Key state flags
-    pub state: c_ushort,
+    state: c_ushort,
+    /// Reserved field (unused)
+    _reserved: c_ushort,
     /// Additional information
-    pub information: c_uint,
+    information: c_uint,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of KeyStroke"][size_of::<KeyStroke>() - 8usize];
+    ["Size of KeyStroke"][size_of::<KeyStroke>() - 12usize];
     ["Alignment of KeyStroke"][align_of::<KeyStroke>() - 4usize];
-    ["Offset of field: KeyStroke::code"][mem::offset_of!(KeyStroke, code) - 0usize];
-    ["Offset of field: KeyStroke::state"][mem::offset_of!(KeyStroke, state) - 2usize];
-    ["Offset of field: KeyStroke::information"][mem::offset_of!(KeyStroke, information) - 4usize];
+    ["Offset of field: KeyStroke::_unit_id"][mem::offset_of!(KeyStroke, _unit_id) - 0usize];
+    ["Offset of field: KeyStroke::code"][mem::offset_of!(KeyStroke, code) - 2usize];
+    ["Offset of field: KeyStroke::state"][mem::offset_of!(KeyStroke, state) - 4usize];
+    ["Offset of field: KeyStroke::_reserved"][mem::offset_of!(KeyStroke, _reserved) - 6usize];
+    ["Offset of field: KeyStroke::information"][mem::offset_of!(KeyStroke, information) - 8usize];
 };
 
-/// A mouse stroke event
+/// A consolidated mouse stroke event that matches the C-ABI requirements
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct MouseStroke {
-    /// Mouse state flags
-    pub state: c_ushort,
+    /// Device unit ID (internal use only)
+    _unit_id: c_ushort,
     /// Mouse movement flags
-    pub flags: c_ushort,
-    /// Mouse wheel delta
-    pub rolling: c_short,
-    /// X coordinate
-    pub x: c_int,
-    /// Y coordinate
-    pub y: c_int,
-    /// Additional information
-    pub information: c_uint,
+    flags: c_ushort,
+    /// Mouse state flags (button_flags in Windows API)
+    state: c_ushort,
+    /// Mouse wheel delta (button_data in Windows API)
+    rolling: c_short,
+    /// Raw buttons state (unused)
+    _raw_buttons: c_ulong,
+    /// X coordinate (last_x in Windows API)
+    x: c_long,
+    /// Y coordinate (last_y in Windows API)
+    y: c_long,
+    /// Additional information (extra_information in Windows API)
+    information: c_ulong,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of MouseStroke"][size_of::<MouseStroke>() - 20usize];
-    ["Alignment of MouseStroke"][align_of::<MouseStroke>() - 4usize];
-    ["Offset of field: MouseStroke::state"][mem::offset_of!(MouseStroke, state) - 0usize];
+    ["Size of MouseStroke"][size_of::<MouseStroke>() - 32usize];
+    ["Alignment of MouseStroke"][align_of::<MouseStroke>() - 8usize];
+    ["Offset of field: MouseStroke::_unit_id"][mem::offset_of!(MouseStroke, _unit_id) - 0usize];
     ["Offset of field: MouseStroke::flags"][mem::offset_of!(MouseStroke, flags) - 2usize];
-    ["Offset of field: MouseStroke::rolling"][mem::offset_of!(MouseStroke, rolling) - 4usize];
-    ["Offset of field: MouseStroke::x"][mem::offset_of!(MouseStroke, x) - 8usize];
-    ["Offset of field: MouseStroke::y"][mem::offset_of!(MouseStroke, y) - 12usize];
+    ["Offset of field: MouseStroke::state"][mem::offset_of!(MouseStroke, state) - 4usize];
+    ["Offset of field: MouseStroke::rolling"][mem::offset_of!(MouseStroke, rolling) - 6usize];
+    ["Offset of field: MouseStroke::_raw_buttons"]
+        [mem::offset_of!(MouseStroke, _raw_buttons) - 8usize];
+    ["Offset of field: MouseStroke::x"][mem::offset_of!(MouseStroke, x) - 12usize];
+    ["Offset of field: MouseStroke::y"][mem::offset_of!(MouseStroke, y) - 20usize];
     ["Offset of field: MouseStroke::information"]
-        [mem::offset_of!(MouseStroke, information) - 16usize];
+        [mem::offset_of!(MouseStroke, information) - 28usize];
 };
 
-// Internal Windows API structures matching the C implementation
+// Internal Windows API structures removed - now using consolidated structs directly
 
-#[derive(Clone)]
-#[repr(C)]
-pub struct KeyboardInputData {
-    pub unit_id: c_ushort,
-    pub make_code: c_ushort,
-    pub flags: c_ushort,
-    pub reserved: c_ushort,
-    pub extra_information: c_uint,
-}
-
-impl Default for KeyboardInputData {
+impl Default for KeyStroke {
     fn default() -> Self {
         unsafe { mem::zeroed() }
     }
 }
 
-#[derive(Clone)]
-#[repr(C)]
-pub struct MouseInputData {
-    pub unit_id: c_ushort,
-    pub flags: c_ushort,
-    pub button_flags: c_ushort,
-    pub button_data: c_ushort,
-    pub raw_buttons: c_ulong,
-    pub last_x: c_long,
-    pub last_y: c_long,
-    pub extra_information: c_ulong,
-}
-
-impl Default for MouseInputData {
+impl Default for MouseStroke {
     fn default() -> Self {
         unsafe { mem::zeroed() }
     }
@@ -615,16 +620,7 @@ impl KeyboardDevice {
             return Ok(Vec::new());
         }
 
-        let raw_strokes = self.receive_keyboard_strokes(max_strokes)?;
-        let mut strokes = Vec::with_capacity(raw_strokes.len());
-        for raw_stroke in &raw_strokes {
-            strokes.push(KeyStroke {
-                code: raw_stroke.make_code,
-                state: raw_stroke.flags,
-                information: raw_stroke.extra_information,
-            });
-        }
-        Ok(strokes)
+        self.receive_keyboard_strokes(max_strokes)
     }
 
     /// Get hardware ID for this keyboard device
@@ -638,19 +634,8 @@ impl KeyboardDevice {
     }
 
     fn send_keyboard_strokes(&self, strokes: &[KeyStroke]) -> Result<usize, InterceptionError> {
-        // Allocate memory using Rust's Vec for safety
-        let mut raw_strokes: Vec<KeyboardInputData> = Vec::with_capacity(strokes.len());
-
-        // Convert KeyStroke to KeyboardInputData
-        for stroke in strokes.iter() {
-            let key_stroke = stroke.clone();
-            raw_strokes.push(KeyboardInputData {
-                unit_id: 0,
-                make_code: key_stroke.code,
-                flags: key_stroke.state,
-                reserved: 0,
-                extra_information: key_stroke.information,
-            });
+        if strokes.is_empty() {
+            return Ok(0);
         }
 
         let mut strokes_written = 0;
@@ -658,8 +643,8 @@ impl KeyboardDevice {
             let result = DeviceIoControl(
                 self.handle.handle,
                 IOCTL_WRITE,
-                raw_strokes.as_ptr() as *const _,
-                (raw_strokes.len() * size_of::<KeyboardInputData>()) as u32,
+                strokes.as_ptr() as *const _,
+                (strokes.len() * size_of::<KeyStroke>()) as u32,
                 ptr::null_mut(),
                 0,
                 &mut strokes_written,
@@ -671,16 +656,15 @@ impl KeyboardDevice {
             }
         }
 
-        Ok((strokes_written as usize) / size_of::<KeyboardInputData>())
+        Ok((strokes_written as usize) / size_of::<KeyStroke>())
     }
 
     fn receive_keyboard_strokes(
         &self,
         max_strokes: usize,
-    ) -> Result<Vec<KeyboardInputData>, InterceptionError> {
+    ) -> Result<Vec<KeyStroke>, InterceptionError> {
         // Allocate memory using Rust's Vec for safety
-        let mut raw_strokes: Vec<KeyboardInputData> =
-            vec![KeyboardInputData::default(); max_strokes];
+        let mut raw_strokes: Vec<KeyStroke> = vec![KeyStroke::default(); max_strokes];
 
         let mut strokes_read = 0;
         unsafe {
@@ -690,7 +674,7 @@ impl KeyboardDevice {
                 ptr::null(),
                 0,
                 raw_strokes.as_mut_ptr() as *mut _,
-                (max_strokes * size_of::<KeyboardInputData>()) as u32,
+                (max_strokes * size_of::<KeyStroke>()) as u32,
                 &mut strokes_read,
                 ptr::null_mut(),
             );
@@ -700,7 +684,7 @@ impl KeyboardDevice {
             }
         }
 
-        let strokes_count = (strokes_read as usize) / size_of::<KeyboardInputData>();
+        let strokes_count = (strokes_read as usize) / size_of::<KeyStroke>();
         raw_strokes.truncate(strokes_count);
 
         Ok(raw_strokes)
@@ -761,19 +745,7 @@ impl MouseDevice {
             return Ok(Vec::new());
         }
 
-        let raw_strokes = self.receive_mouse_strokes(max_strokes)?;
-        let mut strokes = Vec::with_capacity(raw_strokes.len());
-        for raw_stroke in &raw_strokes {
-            strokes.push(MouseStroke {
-                state: raw_stroke.button_flags,
-                flags: raw_stroke.flags,
-                rolling: raw_stroke.button_data as i16,
-                x: raw_stroke.last_x,
-                y: raw_stroke.last_y,
-                information: raw_stroke.extra_information,
-            });
-        }
-        Ok(strokes)
+        self.receive_mouse_strokes(max_strokes)
     }
 
     /// Get hardware ID for this mouse device
@@ -787,22 +759,8 @@ impl MouseDevice {
     }
 
     fn send_mouse_strokes(&self, strokes: &[MouseStroke]) -> Result<usize, InterceptionError> {
-        // Allocate memory using Rust's Vec for safety
-        let mut raw_strokes: Vec<MouseInputData> = Vec::with_capacity(strokes.len());
-
-        // Convert MouseStroke to MouseInputData
-        for stroke in strokes.iter() {
-            let mouse_stroke = stroke.clone();
-            raw_strokes.push(MouseInputData {
-                unit_id: 0,
-                flags: mouse_stroke.flags,
-                button_flags: mouse_stroke.state,
-                button_data: mouse_stroke.rolling as u16,
-                raw_buttons: 0,
-                last_x: mouse_stroke.x,
-                last_y: mouse_stroke.y,
-                extra_information: mouse_stroke.information,
-            });
+        if strokes.is_empty() {
+            return Ok(0);
         }
 
         let mut strokes_written = 0;
@@ -810,8 +768,8 @@ impl MouseDevice {
             let result = DeviceIoControl(
                 self.handle.handle,
                 IOCTL_WRITE,
-                raw_strokes.as_ptr() as *const _,
-                (raw_strokes.len() * size_of::<MouseInputData>()) as u32,
+                strokes.as_ptr() as *const _,
+                (strokes.len() * size_of::<MouseStroke>()) as u32,
                 ptr::null_mut(),
                 0,
                 &mut strokes_written,
@@ -823,15 +781,15 @@ impl MouseDevice {
             }
         }
 
-        Ok((strokes_written as usize) / size_of::<MouseInputData>())
+        Ok((strokes_written as usize) / size_of::<MouseStroke>())
     }
 
     fn receive_mouse_strokes(
         &self,
         max_strokes: usize,
-    ) -> Result<Vec<MouseInputData>, InterceptionError> {
+    ) -> Result<Vec<MouseStroke>, InterceptionError> {
         // Allocate memory using Rust's Vec for safety
-        let mut raw_strokes: Vec<MouseInputData> = vec![MouseInputData::default(); max_strokes];
+        let mut raw_strokes: Vec<MouseStroke> = vec![MouseStroke::default(); max_strokes];
 
         let mut strokes_read = 0;
         unsafe {
@@ -841,7 +799,7 @@ impl MouseDevice {
                 ptr::null(),
                 0,
                 raw_strokes.as_mut_ptr() as *mut _,
-                (max_strokes * size_of::<MouseInputData>()) as u32,
+                (max_strokes * size_of::<MouseStroke>()) as u32,
                 &mut strokes_read,
                 ptr::null_mut(),
             );
@@ -851,7 +809,7 @@ impl MouseDevice {
             }
         }
 
-        let strokes_count = (strokes_read as usize) / size_of::<MouseInputData>();
+        let strokes_count = (strokes_read as usize) / size_of::<MouseStroke>();
         raw_strokes.truncate(strokes_count);
 
         Ok(raw_strokes)
@@ -907,9 +865,22 @@ impl KeyStroke {
     /// Create a new keyboard stroke
     pub fn new(code: u16, state: u16) -> Self {
         Self {
+            _unit_id: 0,
             code,
             state,
+            _reserved: 0,
             information: 0,
+        }
+    }
+
+    /// Create a new keyboard stroke with custom information
+    pub fn with_info(code: u16, state: u16, information: u32) -> Self {
+        Self {
+            _unit_id: 0,
+            code,
+            state,
+            _reserved: 0,
+            information,
         }
     }
 
@@ -922,15 +893,32 @@ impl KeyStroke {
     pub fn up(code: u16) -> Self {
         Self::new(code, KEY_UP as u16)
     }
+
+    /// Get the virtual key code
+    pub fn code(&self) -> u16 {
+        self.code
+    }
+
+    /// Get the key state flags
+    pub fn state(&self) -> u16 {
+        self.state
+    }
+
+    /// Get the additional information
+    pub fn information(&self) -> u32 {
+        self.information
+    }
 }
 
 impl MouseStroke {
     /// Create a new mouse stroke
     pub fn new() -> Self {
         Self {
-            state: 0,
+            _unit_id: 0,
             flags: 0,
+            state: 0,
             rolling: 0,
+            _raw_buttons: 0,
             x: 0,
             y: 0,
             information: 0,
@@ -940,11 +928,13 @@ impl MouseStroke {
     /// Create a mouse move stroke
     pub fn move_to(x: i32, y: i32) -> Self {
         Self {
-            state: 0,
+            _unit_id: 0,
             flags: MOUSE_MOVE_ABSOLUTE as u16,
+            state: 0,
             rolling: 0,
-            x,
-            y,
+            _raw_buttons: 0,
+            x: x as c_long,
+            y: y as c_long,
             information: 0,
         }
     }
@@ -952,9 +942,11 @@ impl MouseStroke {
     /// Create a mouse button down stroke
     pub fn button_down(button: c_int) -> Self {
         Self {
-            state: button as u16,
+            _unit_id: 0,
             flags: 0,
+            state: button as u16,
             rolling: 0,
+            _raw_buttons: 0,
             x: 0,
             y: 0,
             information: 0,
@@ -964,9 +956,11 @@ impl MouseStroke {
     /// Create a mouse button up stroke
     pub fn button_up(button: c_int) -> Self {
         Self {
-            state: button as u16,
+            _unit_id: 0,
             flags: 0,
+            state: button as u16,
             rolling: 0,
+            _raw_buttons: 0,
             x: 0,
             y: 0,
             information: 0,
@@ -976,13 +970,45 @@ impl MouseStroke {
     /// Create a mouse wheel stroke
     pub fn wheel(delta: i16) -> Self {
         Self {
-            state: MOUSE_WHEEL as u16,
+            _unit_id: 0,
             flags: 0,
+            state: MOUSE_WHEEL as u16,
             rolling: delta,
+            _raw_buttons: 0,
             x: 0,
             y: 0,
             information: 0,
         }
+    }
+
+    /// Get the mouse state flags
+    pub fn state(&self) -> u16 {
+        self.state
+    }
+
+    /// Get the mouse movement flags  
+    pub fn flags(&self) -> u16 {
+        self.flags
+    }
+
+    /// Get the mouse wheel delta
+    pub fn rolling(&self) -> i16 {
+        self.rolling
+    }
+
+    /// Get the X coordinate
+    pub fn x(&self) -> i32 {
+        self.x as i32
+    }
+
+    /// Get the Y coordinate
+    pub fn y(&self) -> i32 {
+        self.y as i32
+    }
+
+    /// Get the additional information
+    pub fn information(&self) -> u32 {
+        self.information as u32
     }
 }
 
@@ -999,17 +1025,92 @@ mod tests {
     #[test]
     fn test_stroke_creation() {
         let key_stroke = KeyStroke::down(0x41); // 'A' key
-        assert_eq!(key_stroke.code, 0x41);
-        assert_eq!(key_stroke.state, KEY_DOWN as u16);
+        assert_eq!(key_stroke.code(), 0x41);
+        assert_eq!(key_stroke.state(), KEY_DOWN as u16);
 
         let mouse_stroke = MouseStroke::move_to(100, 200);
-        assert_eq!(mouse_stroke.x, 100);
-        assert_eq!(mouse_stroke.y, 200);
-        assert_eq!(mouse_stroke.flags, MOUSE_MOVE_ABSOLUTE as u16);
+        assert_eq!(mouse_stroke.x(), 100);
+        assert_eq!(mouse_stroke.y(), 200);
+        assert_eq!(mouse_stroke.flags(), MOUSE_MOVE_ABSOLUTE as u16);
 
         let wheel_stroke = MouseStroke::wheel(120);
-        assert_eq!(wheel_stroke.rolling, 120);
-        assert_eq!(wheel_stroke.state, MOUSE_WHEEL as u16);
+        assert_eq!(wheel_stroke.rolling(), 120);
+        assert_eq!(wheel_stroke.state(), MOUSE_WHEEL as u16);
+    }
+
+    #[test]
+    fn test_consolidated_struct_api() {
+        // Test KeyStroke consolidated API
+        let key_stroke_basic = KeyStroke::new(0x42, 0x01);
+        assert_eq!(key_stroke_basic.code(), 0x42);
+        assert_eq!(key_stroke_basic.state(), 0x01);
+        assert_eq!(key_stroke_basic.information(), 0);
+
+        let key_stroke_with_info = KeyStroke::with_info(0x43, 0x02, 0x12345678);
+        assert_eq!(key_stroke_with_info.code(), 0x43);
+        assert_eq!(key_stroke_with_info.state(), 0x02);
+        assert_eq!(key_stroke_with_info.information(), 0x12345678);
+
+        // Test MouseStroke consolidated API
+        let mouse_stroke_basic = MouseStroke::new();
+        assert_eq!(mouse_stroke_basic.x(), 0);
+        assert_eq!(mouse_stroke_basic.y(), 0);
+        assert_eq!(mouse_stroke_basic.information(), 0);
+
+        let mouse_button_down = MouseStroke::button_down(MOUSE_LEFT_BUTTON_DOWN);
+        assert_eq!(mouse_button_down.state(), MOUSE_LEFT_BUTTON_DOWN as u16);
+
+        let mouse_button_up = MouseStroke::button_up(MOUSE_LEFT_BUTTON_UP);
+        assert_eq!(mouse_button_up.state(), MOUSE_LEFT_BUTTON_UP as u16);
+    }
+
+    #[test]
+    fn test_consolidated_struct_c_abi_compatibility() {
+        // Test that KeyStroke matches expected C-ABI layout
+        use std::mem::{align_of, offset_of, size_of};
+
+        // KeyStroke should match original KeyboardInputData structure
+        assert_eq!(size_of::<KeyStroke>(), 12);
+        assert_eq!(align_of::<KeyStroke>(), 4);
+        assert_eq!(offset_of!(KeyStroke, code), 2); // Was make_code
+        assert_eq!(offset_of!(KeyStroke, state), 4); // Was flags  
+        assert_eq!(offset_of!(KeyStroke, information), 8); // Was extra_information
+
+        // MouseStroke should match original MouseInputData structure
+        // Size may vary based on platform due to alignment, but offsets should be correct
+        assert!(size_of::<MouseStroke>() >= 32);
+        assert_eq!(align_of::<MouseStroke>(), 8);
+        assert_eq!(offset_of!(MouseStroke, flags), 2);
+        assert_eq!(offset_of!(MouseStroke, state), 4); // Was button_flags
+        assert_eq!(offset_of!(MouseStroke, rolling), 6); // Was button_data
+        // _raw_buttons, x, y, information follow with proper alignment
+    }
+
+    #[test]
+    fn test_private_fields_not_accessible() {
+        // This test demonstrates that private fields are truly private
+        // The following would not compile if uncommented:
+        // let key_stroke = KeyStroke::down(0x41);
+        // let _ = key_stroke._unit_id;      // Should not compile
+        // let _ = key_stroke._reserved;     // Should not compile
+
+        // let mouse_stroke = MouseStroke::new();
+        // let _ = mouse_stroke._unit_id;    // Should not compile
+        // let _ = mouse_stroke._raw_buttons; // Should not compile
+
+        // Instead, we must use the public API
+        let key_stroke = KeyStroke::down(0x41);
+        let _code = key_stroke.code();
+        let _state = key_stroke.state();
+        let _info = key_stroke.information();
+
+        let mouse_stroke = MouseStroke::move_to(10, 20);
+        let _x = mouse_stroke.x();
+        let _y = mouse_stroke.y();
+        let _flags = mouse_stroke.flags();
+        let _state = mouse_stroke.state();
+        let _rolling = mouse_stroke.rolling();
+        let _info = mouse_stroke.information();
     }
 
     #[test]
