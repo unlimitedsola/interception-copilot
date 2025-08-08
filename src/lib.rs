@@ -207,7 +207,7 @@ pub const FILTER_MOUSE_HWHEEL: MouseFilter = 0x800;
 pub const FILTER_MOUSE_MOVE: MouseFilter = 0x1000;
 
 /// A keyboard stroke event
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct KeyStroke {
     /// Virtual key code
@@ -227,7 +227,7 @@ const _: () = {
 };
 
 /// A mouse stroke event
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct MouseStroke {
     /// Mouse state flags
@@ -643,7 +643,7 @@ impl KeyboardDevice {
 
         // Convert KeyStroke to KeyboardInputData
         for stroke in strokes.iter() {
-            let key_stroke = *stroke;
+            let key_stroke = stroke.clone();
             raw_strokes.push(KeyboardInputData {
                 unit_id: 0,
                 make_code: key_stroke.code,
@@ -792,7 +792,7 @@ impl MouseDevice {
 
         // Convert MouseStroke to MouseInputData
         for stroke in strokes.iter() {
-            let mouse_stroke = *stroke;
+            let mouse_stroke = stroke.clone();
             raw_strokes.push(MouseInputData {
                 unit_id: 0,
                 flags: mouse_stroke.flags,
