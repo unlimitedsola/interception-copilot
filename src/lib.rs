@@ -487,39 +487,6 @@ impl DeviceHandle {
             Ok(buffer)
         }
     }
-
-    /// Check if this device has input available (non-blocking)
-    pub fn has_input(&self) -> bool {
-        unsafe {
-            matches!(
-                WaitForMultipleObjects(1, &self.unempty_event, FALSE, 0),
-                WAIT_OBJECT_0
-            )
-        }
-    }
-
-    /// Wait for input on this device
-    fn wait(&self) -> Result<(), InterceptionError> {
-        unsafe {
-            match WaitForMultipleObjects(1, &self.unempty_event, FALSE, INFINITE) {
-                WAIT_OBJECT_0 => Ok(()),
-                WAIT_FAILED => Err(InterceptionError::WaitFailed(GetLastError())),
-                _ => Err(InterceptionError::WaitFailed(0)),
-            }
-        }
-    }
-
-    /// Wait for input on this device with timeout
-    fn wait_with_timeout(&self, timeout_ms: u32) -> Result<bool, InterceptionError> {
-        unsafe {
-            match WaitForMultipleObjects(1, &self.unempty_event, FALSE, timeout_ms) {
-                WAIT_OBJECT_0 => Ok(true),
-                WAIT_TIMEOUT => Ok(false),
-                WAIT_FAILED => Err(InterceptionError::WaitFailed(GetLastError())),
-                _ => Err(InterceptionError::WaitFailed(0)),
-            }
-        }
-    }
 }
 
 impl Drop for DeviceHandle {
@@ -665,23 +632,8 @@ impl KeyboardDevice {
         self.handle.get_hardware_id()
     }
 
-    /// Check if this device has input available (non-blocking)
-    pub fn has_input(&self) -> bool {
-        self.handle.has_input()
-    }
-
-    /// Wait for input on this keyboard device
-    pub fn wait(&self) -> Result<(), InterceptionError> {
-        self.handle.wait()
-    }
-
-    /// Wait for input on this keyboard device with timeout
-    pub fn wait_with_timeout(&self, timeout_ms: u32) -> Result<bool, InterceptionError> {
-        self.handle.wait_with_timeout(timeout_ms)
-    }
-
     /// Get the underlying device handle for advanced operations
-    pub fn device_handle(&self) -> &DeviceHandle {
+    pub fn handle(&self) -> &DeviceHandle {
         &self.handle
     }
 
@@ -829,23 +781,8 @@ impl MouseDevice {
         self.handle.get_hardware_id()
     }
 
-    /// Check if this device has input available (non-blocking)
-    pub fn has_input(&self) -> bool {
-        self.handle.has_input()
-    }
-
-    /// Wait for input on this mouse device
-    pub fn wait(&self) -> Result<(), InterceptionError> {
-        self.handle.wait()
-    }
-
-    /// Wait for input on this mouse device with timeout
-    pub fn wait_with_timeout(&self, timeout_ms: u32) -> Result<bool, InterceptionError> {
-        self.handle.wait_with_timeout(timeout_ms)
-    }
-
     /// Get the underlying device handle for advanced operations
-    pub fn device_handle(&self) -> &DeviceHandle {
+    pub fn handle(&self) -> &DeviceHandle {
         &self.handle
     }
 
