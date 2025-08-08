@@ -4,7 +4,7 @@
 //! and demonstrates how to send synthetic mouse events.
 
 use interception_copilot::{
-    Context, InterceptionFilter, MouseState, MouseStroke, Stroke, is_mouse_device, mouse,
+    Context, Filter, MouseState, MouseStroke, Stroke, is_mouse_device, mouse,
 };
 
 #[cfg(windows)]
@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let context = Context::new()?;
 
     // Set filter to capture all mouse events
-    context.set_filter(is_mouse_device, InterceptionFilter::MOUSE_ALL)?;
+    context.set_filter(is_mouse_device, Filter::MOUSE_ALL)?;
 
     let mut event_count = 0;
 
