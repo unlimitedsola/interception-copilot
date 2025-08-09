@@ -298,23 +298,20 @@ impl Default for MouseStroke {
     }
 }
 
-pub struct DeviceHandle {
+pub struct Device {
     handle: HANDLE,
-    unempty_event: HANDLE,
+    event: HANDLE,
 }
 
-impl DeviceHandle {
-    fn new(device_index: usize) -> Result<Self, InterceptionError> {
-        let device_name = format!("\\\\.\\interception{device_index:02}");
+impl Device {
+    fn new(index: usize) -> Result<Self, InterceptionError> {
+        let path = format!("\\\\.\\interception{index:02}");
         // Convert to UTF-16 for CreateFileW
-        let device_name_w: Vec<u16> = device_name
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
+        let path_w: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
 
         unsafe {
             let handle = CreateFileW(
-                device_name_w.as_ptr(),
+                path_w.as_ptr(),
                 GENERIC_READ,
                 FILE_SHARE_NONE,
                 ptr::null(),
@@ -361,9 +358,9 @@ impl DeviceHandle {
                 return Err(InterceptionError::DeviceIoControl(error));
             }
 
-            Ok(DeviceHandle {
+            Ok(Device {
                 handle,
-                unempty_event,
+                event: unempty_event,
             })
         }
     }
@@ -494,14 +491,14 @@ impl DeviceHandle {
     }
 }
 
-impl Drop for DeviceHandle {
+impl Drop for Device {
     fn drop(&mut self) {
         unsafe {
             if self.handle != INVALID_HANDLE_VALUE {
                 CloseHandle(self.handle);
             }
-            if !self.unempty_event.is_null() {
-                CloseHandle(self.unempty_event);
+            if !self.event.is_null() {
+                CloseHandle(self.event);
             }
         }
     }
@@ -559,12 +556,12 @@ impl std::error::Error for InterceptionError {}
 
 /// A keyboard input device for intercepting and injecting keyboard events
 pub struct KeyboardDevice {
-    handle: DeviceHandle,
+    handle: Device,
 }
 
 /// A mouse input device for intercepting and injecting mouse events
 pub struct MouseDevice {
-    handle: DeviceHandle,
+    handle: Device,
 }
 
 impl KeyboardDevice {
@@ -580,7 +577,7 @@ impl KeyboardDevice {
             return Err(InterceptionError::InvalidDevice);
         }
 
-        let handle = DeviceHandle::new(index)?;
+        let handle = Device::new(index)?;
         Ok(KeyboardDevice { handle })
     }
 
@@ -629,7 +626,7 @@ impl KeyboardDevice {
     }
 
     /// Get the underlying device handle for advanced operations
-    pub fn handle(&self) -> &DeviceHandle {
+    pub fn handle(&self) -> &Device {
         &self.handle
     }
 
@@ -705,7 +702,7 @@ impl MouseDevice {
         }
 
         let device_index = INTERCEPTION_MAX_KEYBOARD + index;
-        let handle = DeviceHandle::new(device_index)?;
+        let handle = Device::new(device_index)?;
         Ok(MouseDevice { handle })
     }
 
@@ -754,7 +751,7 @@ impl MouseDevice {
     }
 
     /// Get the underlying device handle for advanced operations
-    pub fn handle(&self) -> &DeviceHandle {
+    pub fn handle(&self) -> &Device {
         &self.handle
     }
 
@@ -826,12 +823,12 @@ impl MouseDevice {
 /// # Returns
 /// * `Some(index)` - Index of the device that has input available
 /// * `None` - Timeout occurred or error
-pub fn wait_for_devices(device_handles: &[&DeviceHandle], timeout_ms: u32) -> Option<usize> {
+pub fn wait_for_devices(device_handles: &[&Device], timeout_ms: u32) -> Option<usize> {
     if device_handles.is_empty() {
         return None;
     }
 
-    let wait_handles: Vec<HANDLE> = device_handles.iter().map(|d| d.unempty_event).collect();
+    let wait_handles: Vec<HANDLE> = device_handles.iter().map(|d| d.event).collect();
 
     unsafe {
         let result = WaitForMultipleObjects(
@@ -856,7 +853,7 @@ pub fn wait_for_devices(device_handles: &[&DeviceHandle], timeout_ms: u32) -> Op
 }
 
 /// Wait indefinitely for input from any of the provided device handles
-pub fn wait_for_any(device_handles: &[&DeviceHandle]) -> Option<usize> {
+pub fn wait_for_any(device_handles: &[&Device]) -> Option<usize> {
     wait_for_devices(device_handles, INFINITE)
 }
 
@@ -893,144 +890,11 @@ impl KeyStroke {
     pub fn up(code: u16) -> Self {
         Self::new(code, KEY_UP as u16)
     }
-
-    /// Get the virtual key code
-    pub fn code(&self) -> u16 {
-        self.code
-    }
-
-    /// Get the key state flags
-    pub fn state(&self) -> u16 {
-        self.state
-    }
-
-    /// Get the additional information
-    pub fn information(&self) -> u32 {
-        self.information
-    }
-}
-
-impl MouseStroke {
-    /// Create a new mouse stroke
-    pub fn new() -> Self {
-        Self {
-            _unit_id: 0,
-            flags: 0,
-            state: 0,
-            rolling: 0,
-            _raw_buttons: 0,
-            x: 0,
-            y: 0,
-            information: 0,
-        }
-    }
-
-    /// Create a mouse move stroke
-    pub fn move_to(x: i32, y: i32) -> Self {
-        Self {
-            _unit_id: 0,
-            flags: MOUSE_MOVE_ABSOLUTE as u16,
-            state: 0,
-            rolling: 0,
-            _raw_buttons: 0,
-            x: x as c_long,
-            y: y as c_long,
-            information: 0,
-        }
-    }
-
-    /// Create a mouse button down stroke
-    pub fn button_down(button: c_int) -> Self {
-        Self {
-            _unit_id: 0,
-            flags: 0,
-            state: button as u16,
-            rolling: 0,
-            _raw_buttons: 0,
-            x: 0,
-            y: 0,
-            information: 0,
-        }
-    }
-
-    /// Create a mouse button up stroke
-    pub fn button_up(button: c_int) -> Self {
-        Self {
-            _unit_id: 0,
-            flags: 0,
-            state: button as u16,
-            rolling: 0,
-            _raw_buttons: 0,
-            x: 0,
-            y: 0,
-            information: 0,
-        }
-    }
-
-    /// Create a mouse wheel stroke
-    pub fn wheel(delta: i16) -> Self {
-        Self {
-            _unit_id: 0,
-            flags: 0,
-            state: MOUSE_WHEEL as u16,
-            rolling: delta,
-            _raw_buttons: 0,
-            x: 0,
-            y: 0,
-            information: 0,
-        }
-    }
-
-    /// Get the mouse state flags
-    pub fn state(&self) -> u16 {
-        self.state
-    }
-
-    /// Get the mouse movement flags  
-    pub fn flags(&self) -> u16 {
-        self.flags
-    }
-
-    /// Get the mouse wheel delta
-    pub fn rolling(&self) -> i16 {
-        self.rolling
-    }
-
-    /// Get the X coordinate
-    pub fn x(&self) -> i32 {
-        self.x as i32
-    }
-
-    /// Get the Y coordinate
-    pub fn y(&self) -> i32 {
-        self.y as i32
-    }
-
-    /// Get the additional information
-    pub fn information(&self) -> u32 {
-        self.information as u32
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_stroke_creation() {
-        let key_stroke = KeyStroke::down(0x41); // 'A' key
-        assert_eq!(key_stroke.code(), 0x41);
-        assert_eq!(key_stroke.state(), KEY_DOWN as u16);
-
-        let mouse_stroke = MouseStroke::move_to(100, 200);
-        assert_eq!(mouse_stroke.x(), 100);
-        assert_eq!(mouse_stroke.y(), 200);
-        assert_eq!(mouse_stroke.flags(), MOUSE_MOVE_ABSOLUTE as u16);
-
-        let wheel_stroke = MouseStroke::wheel(120);
-        assert_eq!(wheel_stroke.rolling(), 120);
-        assert_eq!(wheel_stroke.state(), MOUSE_WHEEL as u16);
-    }
 
     #[test]
     fn test_typed_device_bounds_checking() {
