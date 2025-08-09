@@ -57,6 +57,7 @@ use windows_sys::Win32::{
     },
     Storage::FileSystem::{CreateFileW, FILE_SHARE_NONE, OPEN_EXISTING},
     System::{
+        Ioctl::{FILE_ANY_ACCESS, FILE_DEVICE_UNKNOWN, METHOD_BUFFERED},
         Threading::{CreateEventW, WaitForMultipleObjects, INFINITE},
         IO::DeviceIoControl,
     },
@@ -65,11 +66,6 @@ use windows_sys::Win32::{
 // Constants from the original C header
 const INTERCEPTION_MAX_KEYBOARD: usize = 10;
 const INTERCEPTION_MAX_MOUSE: usize = 10;
-
-// Define constants not available in windows-sys
-const FILE_DEVICE_UNKNOWN: u32 = 0x00000022;
-const METHOD_BUFFERED: u32 = 0;
-const FILE_ANY_ACCESS: u32 = 0;
 
 // IOCTL codes from the original C implementation
 const IOCTL_SET_PRECEDENCE: u32 =
@@ -324,20 +320,20 @@ impl Device {
                 return Err(InterceptionError::CreateFile(GetLastError()));
             }
 
-            let unempty_event = CreateEventW(
+            let event = CreateEventW(
                 ptr::null(),
                 TRUE,  // Manual reset
                 FALSE, // Initially non-signaled
                 ptr::null(),
             );
 
-            if unempty_event.is_null() {
+            if event.is_null() {
                 CloseHandle(handle);
                 return Err(InterceptionError::CreateEvent(GetLastError()));
             }
 
             // Set the event handle for the device
-            let event_handles = [unempty_event, ptr::null()];
+            let event_handles = [event, ptr::null()];
             let mut bytes_returned = 0;
 
             let result = DeviceIoControl(
@@ -354,14 +350,11 @@ impl Device {
             if result == 0 {
                 let error = GetLastError();
                 CloseHandle(handle);
-                CloseHandle(unempty_event);
+                CloseHandle(event);
                 return Err(InterceptionError::DeviceIoControl(error));
             }
 
-            Ok(Device {
-                handle,
-                event: unempty_event,
-            })
+            Ok(Device { handle, event })
         }
     }
 
@@ -641,7 +634,7 @@ impl KeyboardDevice {
                 self.handle.handle,
                 IOCTL_WRITE,
                 strokes.as_ptr() as *const _,
-                (strokes.len() * size_of::<KeyStroke>()) as u32,
+                size_of_val(strokes) as u32,
                 ptr::null_mut(),
                 0,
                 &mut strokes_written,
@@ -766,7 +759,7 @@ impl MouseDevice {
                 self.handle.handle,
                 IOCTL_WRITE,
                 strokes.as_ptr() as *const _,
-                (strokes.len() * size_of::<MouseStroke>()) as u32,
+                size_of_val(strokes) as u32,
                 ptr::null_mut(),
                 0,
                 &mut strokes_written,
@@ -857,7 +850,6 @@ pub fn wait_for_any(device_handles: &[&Device]) -> Option<usize> {
     wait_for_devices(device_handles, INFINITE)
 }
 
-// Convenience constructors for strokes
 impl KeyStroke {
     /// Create a new keyboard stroke
     pub fn new(code: u16, state: u16) -> Self {
@@ -883,12 +875,12 @@ impl KeyStroke {
 
     /// Create a key down stroke
     pub fn down(code: u16) -> Self {
-        Self::new(code, KEY_DOWN as u16)
+        Self::new(code, KEY_DOWN)
     }
 
     /// Create a key up stroke
     pub fn up(code: u16) -> Self {
-        Self::new(code, KEY_UP as u16)
+        Self::new(code, KEY_UP)
     }
 }
 
