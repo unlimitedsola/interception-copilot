@@ -582,7 +582,6 @@ impl MouseDevice {
         &self,
         max_strokes: usize,
     ) -> Result<Vec<MouseStroke>, InterceptionError> {
-        // Allocate memory using Rust's Vec for safety
         let mut raw_strokes: Vec<MouseStroke> = vec![MouseStroke::default(); max_strokes];
 
         let mut strokes_read = 0;
@@ -813,6 +812,50 @@ impl Drop for Device {
     }
 }
 
+/// Enum representing either a keyboard or mouse device for waiting operations
+/// Wait for input from any of the provided device handles
+///
+/// # Arguments
+/// * `device_handles` - Slice of device handles to wait for
+/// * `timeout_ms` - Timeout in milliseconds, or `INFINITE` for no timeout
+///
+/// # Returns
+/// * `Some(index)` - Index of the device that has input available
+/// * `None` - Timeout occurred or error
+pub fn wait_for_devices(device_handles: &[&Device], timeout_ms: u32) -> Option<usize> {
+    if device_handles.is_empty() {
+        return None;
+    }
+
+    let wait_handles: Vec<HANDLE> = device_handles.iter().map(|d| d.event).collect();
+
+    unsafe {
+        let result = WaitForMultipleObjects(
+            wait_handles.len() as u32,
+            wait_handles.as_ptr(),
+            FALSE, // Wait for any
+            timeout_ms,
+        );
+
+        match result {
+            WAIT_FAILED | WAIT_TIMEOUT => None,
+            index => {
+                let wait_index = (index - WAIT_OBJECT_0) as usize;
+                if wait_index < device_handles.len() {
+                    Some(wait_index)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
+/// Wait indefinitely for input from any of the provided device handles
+pub fn wait_for_any(device_handles: &[&Device]) -> Option<usize> {
+    wait_for_devices(device_handles, INFINITE)
+}
+
 /// Error types for Interception operations
 #[derive(Debug, Clone)]
 pub enum InterceptionError {
@@ -862,50 +905,6 @@ impl std::fmt::Display for InterceptionError {
 }
 
 impl std::error::Error for InterceptionError {}
-
-/// Enum representing either a keyboard or mouse device for waiting operations
-/// Wait for input from any of the provided device handles
-///
-/// # Arguments
-/// * `device_handles` - Slice of device handles to wait for
-/// * `timeout_ms` - Timeout in milliseconds, or `INFINITE` for no timeout
-///
-/// # Returns
-/// * `Some(index)` - Index of the device that has input available
-/// * `None` - Timeout occurred or error
-pub fn wait_for_devices(device_handles: &[&Device], timeout_ms: u32) -> Option<usize> {
-    if device_handles.is_empty() {
-        return None;
-    }
-
-    let wait_handles: Vec<HANDLE> = device_handles.iter().map(|d| d.event).collect();
-
-    unsafe {
-        let result = WaitForMultipleObjects(
-            wait_handles.len() as u32,
-            wait_handles.as_ptr(),
-            FALSE, // Wait for any
-            timeout_ms,
-        );
-
-        match result {
-            WAIT_FAILED | WAIT_TIMEOUT => None,
-            index => {
-                let wait_index = (index - WAIT_OBJECT_0) as usize;
-                if wait_index < device_handles.len() {
-                    Some(wait_index)
-                } else {
-                    None
-                }
-            }
-        }
-    }
-}
-
-/// Wait indefinitely for input from any of the provided device handles
-pub fn wait_for_any(device_handles: &[&Device]) -> Option<usize> {
-    wait_for_devices(device_handles, INFINITE)
-}
 
 #[cfg(test)]
 mod tests {
