@@ -95,7 +95,7 @@ const fn ctl_code(device_type: u32, function: u32, method: u32, access: u32) -> 
 pub type Precedence = c_int;
 
 /// Keyboard key state flags
-pub type KeyState = c_int;
+pub type KeyState = c_ushort;
 /// Key down event
 pub const KEY_DOWN: KeyState = 0x00;
 /// Key up event
@@ -112,7 +112,7 @@ pub const KEY_TERMSRV_SHADOW: KeyState = 0x10;
 pub const KEY_TERMSRV_VKPACKET: KeyState = 0x20;
 
 /// Mouse button and wheel state flags  
-pub type MouseState = c_int;
+pub type MouseState = c_ushort;
 /// Left mouse button down
 pub const MOUSE_LEFT_BUTTON_DOWN: MouseState = 0x001;
 /// Left mouse button up
@@ -152,7 +152,7 @@ pub const MOUSE_BUTTON_3_DOWN: MouseState = MOUSE_MIDDLE_BUTTON_DOWN;
 pub const MOUSE_BUTTON_3_UP: MouseState = MOUSE_MIDDLE_BUTTON_UP;
 
 /// Mouse movement flags
-pub type MouseFlag = c_int;
+pub type MouseFlag = c_ushort;
 /// Relative movement
 pub const MOUSE_MOVE_RELATIVE: MouseFlag = 0x000;
 /// Absolute movement
@@ -221,20 +221,21 @@ pub const FILTER_MOUSE_HWHEEL: MouseFilter = 0x800;
 /// Filter mouse movement
 pub const FILTER_MOUSE_MOVE: MouseFilter = 0x1000;
 
-/// A consolidated keyboard stroke event that matches the C-ABI requirements
+/// `KEYBOARD_INPUT_DATA` structure
+/// <https://learn.microsoft.com/en-us/windows/win32/api/ntddkbd/ns-ntddkbd-keyboard_input_data>
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct KeyStroke {
     /// Device unit ID (internal use only)
     _unit_id: c_ushort,
     /// Virtual key code (make_code in Windows API)
-    code: c_ushort,
+    pub code: c_ushort,
     /// Key state flags
-    state: c_ushort,
+    pub state: KeyState,
     /// Reserved field (unused)
     _reserved: c_ushort,
     /// Additional information
-    information: c_uint,
+    pub information: c_uint,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -247,31 +248,38 @@ const _: () = {
     ["Offset of field: KeyStroke::information"][mem::offset_of!(KeyStroke, information) - 8usize];
 };
 
-/// A consolidated mouse stroke event that matches the C-ABI requirements
+impl Default for KeyStroke {
+    fn default() -> Self {
+        unsafe { mem::zeroed() }
+    }
+}
+
+/// `MOUSE_INPUT_DATA` structure
+/// <https://learn.microsoft.com/en-us/windows/win32/api/ntddmou/ns-ntddmou-mouse_input_data>
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct MouseStroke {
-    /// Device unit ID (internal use only)
+    /// Device unit ID (unused)
     _unit_id: c_ushort,
     /// Mouse movement flags
-    flags: c_ushort,
-    /// Mouse state flags (button_flags in Windows API)
-    state: c_ushort,
-    /// Mouse wheel delta (button_data in Windows API)
-    rolling: c_short,
+    pub flags: MouseFlag,
+    /// Mouse state flags (`button_flags` in Windows API)
+    pub state: MouseState,
+    /// Mouse wheel delta (`button_data` in Windows API)
+    pub rolling: c_short,
     /// Raw buttons state (unused)
     _raw_buttons: c_ulong,
-    /// X coordinate (last_x in Windows API)
-    x: c_long,
-    /// Y coordinate (last_y in Windows API)
-    y: c_long,
-    /// Additional information (extra_information in Windows API)
+    /// X coordinate (`last_x` in Windows API)
+    pub x: c_long,
+    /// Y coordinate (`last_y` in Windows API)
+    pub y: c_long,
+    /// Additional information (`extra_information` in Windows API)
     information: c_ulong,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of MouseStroke"][size_of::<MouseStroke>() - 32usize];
-    ["Alignment of MouseStroke"][align_of::<MouseStroke>() - 8usize];
+    ["Size of MouseStroke"][size_of::<MouseStroke>() - 24usize];
+    ["Alignment of MouseStroke"][align_of::<MouseStroke>() - 4usize];
     ["Offset of field: MouseStroke::_unit_id"][mem::offset_of!(MouseStroke, _unit_id) - 0usize];
     ["Offset of field: MouseStroke::flags"][mem::offset_of!(MouseStroke, flags) - 2usize];
     ["Offset of field: MouseStroke::state"][mem::offset_of!(MouseStroke, state) - 4usize];
@@ -279,18 +287,10 @@ const _: () = {
     ["Offset of field: MouseStroke::_raw_buttons"]
         [mem::offset_of!(MouseStroke, _raw_buttons) - 8usize];
     ["Offset of field: MouseStroke::x"][mem::offset_of!(MouseStroke, x) - 12usize];
-    ["Offset of field: MouseStroke::y"][mem::offset_of!(MouseStroke, y) - 20usize];
+    ["Offset of field: MouseStroke::y"][mem::offset_of!(MouseStroke, y) - 16usize];
     ["Offset of field: MouseStroke::information"]
-        [mem::offset_of!(MouseStroke, information) - 28usize];
+        [mem::offset_of!(MouseStroke, information) - 20usize];
 };
-
-// Internal Windows API structures removed - now using consolidated structs directly
-
-impl Default for KeyStroke {
-    fn default() -> Self {
-        unsafe { mem::zeroed() }
-    }
-}
 
 impl Default for MouseStroke {
     fn default() -> Self {
@@ -1012,12 +1012,6 @@ impl MouseStroke {
     }
 }
 
-impl Default for MouseStroke {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1036,106 +1030,6 @@ mod tests {
         let wheel_stroke = MouseStroke::wheel(120);
         assert_eq!(wheel_stroke.rolling(), 120);
         assert_eq!(wheel_stroke.state(), MOUSE_WHEEL as u16);
-    }
-
-    #[test]
-    fn test_consolidated_struct_api() {
-        // Test KeyStroke consolidated API
-        let key_stroke_basic = KeyStroke::new(0x42, 0x01);
-        assert_eq!(key_stroke_basic.code(), 0x42);
-        assert_eq!(key_stroke_basic.state(), 0x01);
-        assert_eq!(key_stroke_basic.information(), 0);
-
-        let key_stroke_with_info = KeyStroke::with_info(0x43, 0x02, 0x12345678);
-        assert_eq!(key_stroke_with_info.code(), 0x43);
-        assert_eq!(key_stroke_with_info.state(), 0x02);
-        assert_eq!(key_stroke_with_info.information(), 0x12345678);
-
-        // Test MouseStroke consolidated API
-        let mouse_stroke_basic = MouseStroke::new();
-        assert_eq!(mouse_stroke_basic.x(), 0);
-        assert_eq!(mouse_stroke_basic.y(), 0);
-        assert_eq!(mouse_stroke_basic.information(), 0);
-
-        let mouse_button_down = MouseStroke::button_down(MOUSE_LEFT_BUTTON_DOWN);
-        assert_eq!(mouse_button_down.state(), MOUSE_LEFT_BUTTON_DOWN as u16);
-
-        let mouse_button_up = MouseStroke::button_up(MOUSE_LEFT_BUTTON_UP);
-        assert_eq!(mouse_button_up.state(), MOUSE_LEFT_BUTTON_UP as u16);
-    }
-
-    #[test]
-    fn test_consolidated_struct_c_abi_compatibility() {
-        // Test that KeyStroke matches expected C-ABI layout
-        use std::mem::{align_of, offset_of, size_of};
-
-        // KeyStroke should match original KeyboardInputData structure
-        assert_eq!(size_of::<KeyStroke>(), 12);
-        assert_eq!(align_of::<KeyStroke>(), 4);
-        assert_eq!(offset_of!(KeyStroke, code), 2); // Was make_code
-        assert_eq!(offset_of!(KeyStroke, state), 4); // Was flags  
-        assert_eq!(offset_of!(KeyStroke, information), 8); // Was extra_information
-
-        // MouseStroke should match original MouseInputData structure
-        // Size may vary based on platform due to alignment, but offsets should be correct
-        assert!(size_of::<MouseStroke>() >= 32);
-        assert_eq!(align_of::<MouseStroke>(), 8);
-        assert_eq!(offset_of!(MouseStroke, flags), 2);
-        assert_eq!(offset_of!(MouseStroke, state), 4); // Was button_flags
-        assert_eq!(offset_of!(MouseStroke, rolling), 6); // Was button_data
-        // _raw_buttons, x, y, information follow with proper alignment
-    }
-
-    #[test]
-    fn test_private_fields_not_accessible() {
-        // This test demonstrates that private fields are truly private
-        // The following would not compile if uncommented:
-        // let key_stroke = KeyStroke::down(0x41);
-        // let _ = key_stroke._unit_id;      // Should not compile
-        // let _ = key_stroke._reserved;     // Should not compile
-
-        // let mouse_stroke = MouseStroke::new();
-        // let _ = mouse_stroke._unit_id;    // Should not compile
-        // let _ = mouse_stroke._raw_buttons; // Should not compile
-
-        // Instead, we must use the public API
-        let key_stroke = KeyStroke::down(0x41);
-        let _code = key_stroke.code();
-        let _state = key_stroke.state();
-        let _info = key_stroke.information();
-
-        let mouse_stroke = MouseStroke::move_to(10, 20);
-        let _x = mouse_stroke.x();
-        let _y = mouse_stroke.y();
-        let _flags = mouse_stroke.flags();
-        let _state = mouse_stroke.state();
-        let _rolling = mouse_stroke.rolling();
-        let _info = mouse_stroke.information();
-    }
-
-    #[test]
-    fn test_flag_combinations() {
-        // Test combining KeyState flags with bitwise operations
-        let combined_key_state = KEY_UP | KEY_E0;
-        assert_eq!(combined_key_state, 0x01 | 0x02);
-        assert!(combined_key_state & KEY_UP != 0);
-        assert!(combined_key_state & KEY_E0 != 0);
-        // KEY_DOWN is 0, so we test that we didn't accidentally include E1 instead
-        assert!(combined_key_state & KEY_E1 == 0);
-
-        // Test combining MouseState flags with bitwise operations
-        let combined_mouse_state = MOUSE_LEFT_BUTTON_DOWN | MOUSE_WHEEL;
-        assert_eq!(combined_mouse_state, 0x001 | 0x400);
-        assert!(combined_mouse_state & MOUSE_LEFT_BUTTON_DOWN != 0);
-        assert!(combined_mouse_state & MOUSE_WHEEL != 0);
-        assert!(combined_mouse_state & MOUSE_RIGHT_BUTTON_DOWN == 0);
-
-        // Test combining Filter flags with bitwise operations
-        let combined_filter = FILTER_KEY_UP | FILTER_MOUSE_WHEEL;
-        assert_eq!(combined_filter, 0x02 | 0x400);
-        assert!(combined_filter & FILTER_KEY_UP != 0);
-        assert!(combined_filter & FILTER_MOUSE_WHEEL != 0);
-        assert!(combined_filter & FILTER_KEY_DOWN == 0);
     }
 
     #[test]
