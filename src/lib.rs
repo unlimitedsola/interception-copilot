@@ -250,6 +250,40 @@ impl Default for KeyStroke {
     }
 }
 
+impl KeyStroke {
+    /// Create a new keyboard stroke
+    pub fn new(code: u16, state: u16) -> Self {
+        Self {
+            _unit_id: 0,
+            code,
+            state,
+            _reserved: 0,
+            information: 0,
+        }
+    }
+
+    /// Create a new keyboard stroke with custom information
+    pub fn with_info(code: u16, state: u16, information: u32) -> Self {
+        Self {
+            _unit_id: 0,
+            code,
+            state,
+            _reserved: 0,
+            information,
+        }
+    }
+
+    /// Create a key down stroke
+    pub fn down(code: u16) -> Self {
+        Self::new(code, KEY_DOWN)
+    }
+
+    /// Create a key up stroke
+    pub fn up(code: u16) -> Self {
+        Self::new(code, KEY_UP)
+    }
+}
+
 /// `MOUSE_INPUT_DATA` structure
 /// <https://learn.microsoft.com/en-us/windows/win32/api/ntddmou/ns-ntddmou-mouse_input_data>
 #[derive(Debug, Clone)]
@@ -291,6 +325,29 @@ const _: () = {
 impl Default for MouseStroke {
     fn default() -> Self {
         unsafe { mem::zeroed() }
+    }
+}
+
+impl MouseStroke {
+    /// Create a new mouse stroke
+    pub fn new(
+        flags: MouseFlag,
+        state: MouseState,
+        rolling: c_short,
+        x: c_long,
+        y: c_long,
+        information: c_ulong,
+    ) -> Self {
+        Self {
+            _unit_id: 0,
+            flags,
+            state,
+            rolling,
+            _raw_buttons: 0,
+            x,
+            y,
+            information,
+        }
     }
 }
 
@@ -848,40 +905,6 @@ pub fn wait_for_devices(device_handles: &[&Device], timeout_ms: u32) -> Option<u
 /// Wait indefinitely for input from any of the provided device handles
 pub fn wait_for_any(device_handles: &[&Device]) -> Option<usize> {
     wait_for_devices(device_handles, INFINITE)
-}
-
-impl KeyStroke {
-    /// Create a new keyboard stroke
-    pub fn new(code: u16, state: u16) -> Self {
-        Self {
-            _unit_id: 0,
-            code,
-            state,
-            _reserved: 0,
-            information: 0,
-        }
-    }
-
-    /// Create a new keyboard stroke with custom information
-    pub fn with_info(code: u16, state: u16, information: u32) -> Self {
-        Self {
-            _unit_id: 0,
-            code,
-            state,
-            _reserved: 0,
-            information,
-        }
-    }
-
-    /// Create a key down stroke
-    pub fn down(code: u16) -> Self {
-        Self::new(code, KEY_DOWN)
-    }
-
-    /// Create a key up stroke
-    pub fn up(code: u16) -> Self {
-        Self::new(code, KEY_UP)
-    }
 }
 
 #[cfg(test)]
