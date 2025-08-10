@@ -70,26 +70,6 @@ use windows_sys::Win32::{
 const INTERCEPTION_MAX_KEYBOARD: usize = 10;
 const INTERCEPTION_MAX_MOUSE: usize = 10;
 
-// IOCTL codes from the original C implementation
-const IOCTL_SET_PRECEDENCE: u32 =
-    ctl_code(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_GET_PRECEDENCE: u32 =
-    ctl_code(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_SET_FILTER: u32 =
-    ctl_code(FILE_DEVICE_UNKNOWN, 0x804, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_GET_FILTER: u32 =
-    ctl_code(FILE_DEVICE_UNKNOWN, 0x808, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_SET_EVENT: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x810, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_WRITE: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x820, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_READ: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x840, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_GET_HARDWARE_ID: u32 =
-    ctl_code(FILE_DEVICE_UNKNOWN, 0x880, METHOD_BUFFERED, FILE_ANY_ACCESS);
-
-// Helper function to construct IOCTL codes
-const fn ctl_code(device_type: u32, function: u32, method: u32, access: u32) -> u32 {
-    (device_type << 16) | (access << 14) | (function << 2) | method
-}
-
 /// Precedence value for device handling order
 pub type Precedence = c_int;
 
@@ -492,61 +472,6 @@ pub struct Device {
 }
 
 impl Device {
-    /// Performs a device I/O control operation with type-safe input and output parameters
-    ///
-    /// This function provides a safe and idiomatic interface to Windows DeviceIoControl:
-    /// - Accepts references instead of raw pointers for type safety
-    /// - Automatically infers buffer sizes from the referenced types
-    /// - Handles null pointers for unused input/output buffers via Option types
-    /// - Provides consistent error handling and returns bytes transferred on success
-    fn ioctl<I: ?Sized, O: ?Sized>(
-        &self,
-        code: u32,
-        input: Option<&I>,
-        output: Option<&mut O>,
-    ) -> Result<u32, InterceptionError> {
-        let mut bytes_returned = 0;
-
-        let (input_buffer, input_size) = match input {
-            Some(data) => (data as *const I as *const c_void, size_of_val(data) as u32),
-            None => (ptr::null(), 0),
-        };
-
-        let (output_buffer, output_size) = match output {
-            Some(data) => (data as *mut O as *mut c_void, size_of_val(data) as u32),
-            None => (ptr::null_mut(), 0),
-        };
-
-        unsafe {
-            let result = DeviceIoControl(
-                self.handle,
-                code,
-                input_buffer,
-                input_size,
-                output_buffer,
-                output_size,
-                &mut bytes_returned,
-                ptr::null_mut(),
-            );
-
-            if result == 0 {
-                return Err(InterceptionError::DeviceIoControl(GetLastError()));
-            }
-        }
-
-        Ok(bytes_returned)
-    }
-
-    /// Helper for device I/O control operations that only send input
-    fn ioctl_in<I: ?Sized>(&self, code: u32, input: &I) -> Result<u32, InterceptionError> {
-        self.ioctl(code, Some(input), None::<&mut ()>)
-    }
-
-    /// Helper for device I/O control operations that only receive output
-    fn ioctl_out<O: ?Sized>(&self, code: u32, output: &mut O) -> Result<u32, InterceptionError> {
-        self.ioctl(code, None::<&()>, Some(output))
-    }
-
     fn new(index: usize) -> Result<Self, InterceptionError> {
         let path = format!("\\\\.\\interception{index:02}");
         // Convert to UTF-16 for CreateFileW
@@ -607,27 +532,27 @@ impl Device {
 
     /// Set filter for this device
     fn set_filter(&self, filter: Filter) -> Result<(), InterceptionError> {
-        self.ioctl_in(IOCTL_SET_FILTER, &filter)?;
+        ioctl_in(self.handle, IOCTL_SET_FILTER, &filter)?;
         Ok(())
     }
 
     /// Get filter for this device
     fn get_filter(&self) -> Result<Filter, InterceptionError> {
         let mut filter: Filter = FILTER_NONE;
-        self.ioctl_out(IOCTL_GET_FILTER, &mut filter)?;
+        ioctl_out(self.handle, IOCTL_GET_FILTER, &mut filter)?;
         Ok(filter)
     }
 
     /// Set precedence for this device
     fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
-        self.ioctl_in(IOCTL_SET_PRECEDENCE, &precedence)?;
+        ioctl_in(self.handle, IOCTL_SET_PRECEDENCE, &precedence)?;
         Ok(())
     }
 
     /// Get precedence for this device
     fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
         let mut precedence: Precedence = 0;
-        self.ioctl_out(IOCTL_GET_PRECEDENCE, &mut precedence)?;
+        ioctl_out(self.handle, IOCTL_GET_PRECEDENCE, &mut precedence)?;
         Ok(precedence)
     }
 
@@ -636,7 +561,7 @@ impl Device {
         // Try with a reasonable buffer size first
         let mut buffer = vec![0u8; 512];
 
-        let output_size = self.ioctl_out(IOCTL_GET_HARDWARE_ID, buffer.as_mut_slice())?;
+        let output_size = ioctl_out(self.handle, IOCTL_GET_HARDWARE_ID, buffer.as_mut_slice())?;
 
         buffer.truncate(output_size as usize);
         Ok(buffer)
@@ -648,7 +573,7 @@ impl Device {
             return Ok(0);
         }
 
-        let strokes_written = self.ioctl_in(IOCTL_WRITE, strokes)?;
+        let strokes_written = ioctl_in(self.handle, IOCTL_WRITE, strokes)?;
         Ok((strokes_written as usize) / size_of::<T>())
     }
 
@@ -660,7 +585,7 @@ impl Device {
 
         let mut raw_strokes: Vec<T> = vec![T::default(); max_strokes];
 
-        let strokes_read = self.ioctl_out(IOCTL_READ, raw_strokes.as_mut_slice())?;
+        let strokes_read = ioctl_out(self.handle, IOCTL_READ, raw_strokes.as_mut_slice())?;
 
         let strokes_count = (strokes_read as usize) / size_of::<T>();
         raw_strokes.truncate(strokes_count);
@@ -724,6 +649,77 @@ pub fn wait_for_devices(device_handles: &[&Device], timeout_ms: u32) -> Option<u
 /// Wait indefinitely for input from any of the provided device handles
 pub fn wait_for_any(device_handles: &[&Device]) -> Option<usize> {
     wait_for_devices(device_handles, INFINITE)
+}
+
+/// Performs a device I/O control operation with type-safe input and output parameters
+fn ioctl<I: ?Sized, O: ?Sized>(
+    handle: HANDLE,
+    code: u32,
+    input: Option<&I>,
+    output: Option<&mut O>,
+) -> Result<u32, InterceptionError> {
+    let mut bytes_returned = 0;
+
+    let (input_ptr, input_size) = match input {
+        Some(data) => (data as *const I as *const c_void, size_of_val(data) as u32),
+        None => (ptr::null(), 0),
+    };
+
+    let (output_ptr, output_size) = match output {
+        Some(data) => (data as *mut O as *mut c_void, size_of_val(data) as u32),
+        None => (ptr::null_mut(), 0),
+    };
+
+    unsafe {
+        let result = DeviceIoControl(
+            handle,
+            code,
+            input_ptr,
+            input_size,
+            output_ptr,
+            output_size,
+            &mut bytes_returned,
+            ptr::null_mut(),
+        );
+
+        if result == 0 {
+            return Err(InterceptionError::DeviceIoControl(GetLastError()));
+        }
+    }
+
+    Ok(bytes_returned)
+}
+
+fn ioctl_in<I: ?Sized>(handle: HANDLE, code: u32, input: &I) -> Result<u32, InterceptionError> {
+    ioctl(handle, code, Some(input), None::<&mut ()>)
+}
+
+fn ioctl_out<O: ?Sized>(
+    handle: HANDLE,
+    code: u32,
+    output: &mut O,
+) -> Result<u32, InterceptionError> {
+    ioctl(handle, code, None::<&()>, Some(output))
+}
+
+// IOCTL codes from the original C implementation
+const IOCTL_SET_PRECEDENCE: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_GET_PRECEDENCE: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_SET_FILTER: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x804, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_GET_FILTER: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x808, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_SET_EVENT: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x810, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_WRITE: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x820, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_READ: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x840, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_GET_HARDWARE_ID: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x880, METHOD_BUFFERED, FILE_ANY_ACCESS);
+
+/// `CTL_CODE` macro in `winioctl.h`
+const fn ctl_code(device_type: u32, function: u32, method: u32, access: u32) -> u32 {
+    (device_type << 16) | (access << 14) | (function << 2) | method
 }
 
 /// Error types for Interception operations
