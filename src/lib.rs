@@ -90,54 +90,6 @@ const fn ctl_code(device_type: u32, function: u32, method: u32, access: u32) -> 
     (device_type << 16) | (access << 14) | (function << 2) | method
 }
 
-/// Performs a device I/O control operation with type-safe input and output parameters
-///
-/// This function provides a safe and idiomatic interface to Windows DeviceIoControl:
-/// - Accepts references instead of raw pointers for type safety
-/// - Automatically infers buffer sizes from the referenced types
-/// - Handles null pointers for unused input/output buffers via Option types
-/// - Provides consistent error handling and returns bytes transferred on success
-fn call_device_ioctl<I: ?Sized, O: ?Sized>(
-    handle: HANDLE,
-    ioctl_code: u32,
-    input: Option<&I>,
-    output: Option<&mut O>,
-) -> Result<u32, InterceptionError> {
-    let mut bytes_returned = 0;
-
-    let (input_buffer, input_size) = match input {
-        Some(data) => (
-            data as *const I as *const c_void,
-            mem::size_of_val(data) as u32,
-        ),
-        None => (ptr::null(), 0),
-    };
-
-    let (output_buffer, output_size) = match output {
-        Some(data) => (data as *mut O as *mut c_void, mem::size_of_val(data) as u32),
-        None => (ptr::null_mut(), 0),
-    };
-
-    unsafe {
-        let result = DeviceIoControl(
-            handle,
-            ioctl_code,
-            input_buffer,
-            input_size,
-            output_buffer,
-            output_size,
-            &mut bytes_returned,
-            ptr::null_mut(),
-        );
-
-        if result == 0 {
-            return Err(InterceptionError::DeviceIoControl(GetLastError()));
-        }
-    }
-
-    Ok(bytes_returned)
-}
-
 /// Precedence value for device handling order
 pub type Precedence = c_int;
 
@@ -540,6 +492,72 @@ pub struct Device {
 }
 
 impl Device {
+    /// Performs a device I/O control operation with type-safe input and output parameters
+    ///
+    /// This function provides a safe and idiomatic interface to Windows DeviceIoControl:
+    /// - Accepts references instead of raw pointers for type safety
+    /// - Automatically infers buffer sizes from the referenced types
+    /// - Handles null pointers for unused input/output buffers via Option types
+    /// - Provides consistent error handling and returns bytes transferred on success
+    fn call_device_ioctl<I: ?Sized, O: ?Sized>(
+        &self,
+        ioctl_code: u32,
+        input: Option<&I>,
+        output: Option<&mut O>,
+    ) -> Result<u32, InterceptionError> {
+        let mut bytes_returned = 0;
+
+        let (input_buffer, input_size) = match input {
+            Some(data) => (
+                data as *const I as *const c_void,
+                mem::size_of_val(data) as u32,
+            ),
+            None => (ptr::null(), 0),
+        };
+
+        let (output_buffer, output_size) = match output {
+            Some(data) => (data as *mut O as *mut c_void, mem::size_of_val(data) as u32),
+            None => (ptr::null_mut(), 0),
+        };
+
+        unsafe {
+            let result = DeviceIoControl(
+                self.handle,
+                ioctl_code,
+                input_buffer,
+                input_size,
+                output_buffer,
+                output_size,
+                &mut bytes_returned,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        Ok(bytes_returned)
+    }
+
+    /// Helper for device I/O control operations that only send input
+    fn call_device_ioctl_input_only<I: ?Sized>(
+        &self,
+        ioctl_code: u32,
+        input: &I,
+    ) -> Result<u32, InterceptionError> {
+        self.call_device_ioctl(ioctl_code, Some(input), None::<&mut ()>)
+    }
+
+    /// Helper for device I/O control operations that only receive output
+    fn call_device_ioctl_output_only<O: ?Sized>(
+        &self,
+        ioctl_code: u32,
+        output: &mut O,
+    ) -> Result<u32, InterceptionError> {
+        self.call_device_ioctl(ioctl_code, None::<&()>, Some(output))
+    }
+
     fn new(index: usize) -> Result<Self, InterceptionError> {
         let path = format!("\\\\.\\interception{index:02}");
         // Convert to UTF-16 for CreateFileW
@@ -572,21 +590,27 @@ impl Device {
                 return Err(InterceptionError::CreateEvent(GetLastError()));
             }
 
-            // Set the event handle for the device
+            // Set the event handle for the device using original DeviceIoControl approach
             let event_handles = [event, ptr::null()];
+            let mut bytes_returned = 0;
 
-            call_device_ioctl(
+            let result = DeviceIoControl(
                 handle,
                 IOCTL_SET_EVENT,
-                Some(&event_handles),
-                None::<&mut ()>,
-            )
-            .map_err(|_| {
+                event_handles.as_ptr() as *const _,
+                (event_handles.len() * mem::size_of::<HANDLE>()) as u32,
+                ptr::null_mut(),
+                0,
+                &mut bytes_returned,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
                 let error = GetLastError();
                 CloseHandle(handle);
                 CloseHandle(event);
-                InterceptionError::DeviceIoControl(error)
-            })?;
+                return Err(InterceptionError::DeviceIoControl(error));
+            }
 
             Ok(Device { handle, event })
         }
@@ -594,53 +618,27 @@ impl Device {
 
     /// Set filter for this device
     fn set_filter(&self, filter: Filter) -> Result<(), InterceptionError> {
-        call_device_ioctl(
-            self.handle,
-            IOCTL_SET_FILTER,
-            Some(&filter),
-            None::<&mut ()>,
-        )?;
-
+        self.call_device_ioctl_input_only(IOCTL_SET_FILTER, &filter)?;
         Ok(())
     }
 
     /// Get filter for this device
     fn get_filter(&self) -> Result<Filter, InterceptionError> {
         let mut filter: Filter = FILTER_NONE;
-
-        call_device_ioctl(
-            self.handle,
-            IOCTL_GET_FILTER,
-            None::<&()>,
-            Some(&mut filter),
-        )?;
-
+        self.call_device_ioctl_output_only(IOCTL_GET_FILTER, &mut filter)?;
         Ok(filter)
     }
 
     /// Set precedence for this device
     fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
-        call_device_ioctl(
-            self.handle,
-            IOCTL_SET_PRECEDENCE,
-            Some(&precedence),
-            None::<&mut ()>,
-        )?;
-
+        self.call_device_ioctl_input_only(IOCTL_SET_PRECEDENCE, &precedence)?;
         Ok(())
     }
 
     /// Get precedence for this device
     fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
         let mut precedence: Precedence = 0;
-
-        call_device_ioctl(
-            self.handle,
-            IOCTL_GET_PRECEDENCE,
-            None::<&()>,
-            Some(&mut precedence),
-        )?;
-
+        self.call_device_ioctl_output_only(IOCTL_GET_PRECEDENCE, &mut precedence)?;
         Ok(precedence)
     }
 
@@ -649,12 +647,8 @@ impl Device {
         // Try with a reasonable buffer size first
         let mut buffer = vec![0u8; 512];
 
-        let output_size = call_device_ioctl(
-            self.handle,
-            IOCTL_GET_HARDWARE_ID,
-            None::<&()>,
-            Some(buffer.as_mut_slice()),
-        )?;
+        let output_size =
+            self.call_device_ioctl_output_only(IOCTL_GET_HARDWARE_ID, buffer.as_mut_slice())?;
 
         buffer.truncate(output_size as usize);
         Ok(buffer)
@@ -666,9 +660,7 @@ impl Device {
             return Ok(0);
         }
 
-        let strokes_written =
-            call_device_ioctl(self.handle, IOCTL_WRITE, Some(strokes), None::<&mut ()>)?;
-
+        let strokes_written = self.call_device_ioctl_input_only(IOCTL_WRITE, strokes)?;
         Ok((strokes_written as usize) / mem::size_of::<T>())
     }
 
@@ -680,12 +672,8 @@ impl Device {
 
         let mut raw_strokes: Vec<T> = vec![T::default(); max_strokes];
 
-        let strokes_read = call_device_ioctl(
-            self.handle,
-            IOCTL_READ,
-            None::<&()>,
-            Some(raw_strokes.as_mut_slice()),
-        )?;
+        let strokes_read =
+            self.call_device_ioctl_output_only(IOCTL_READ, raw_strokes.as_mut_slice())?;
 
         let strokes_count = (strokes_read as usize) / mem::size_of::<T>();
         raw_strokes.truncate(strokes_count);
