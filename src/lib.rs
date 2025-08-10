@@ -55,14 +55,14 @@ use std::mem;
 use std::ptr;
 use windows_sys::Win32::{
     Foundation::{
-        CloseHandle, FALSE, GENERIC_READ, GetLastError, HANDLE, INVALID_HANDLE_VALUE, TRUE,
+        CloseHandle, GetLastError, FALSE, GENERIC_READ, HANDLE, INVALID_HANDLE_VALUE, TRUE,
         WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
     Storage::FileSystem::{CreateFileW, FILE_SHARE_NONE, OPEN_EXISTING},
     System::{
-        IO::DeviceIoControl,
         Ioctl::{FILE_ANY_ACCESS, FILE_DEVICE_UNKNOWN, METHOD_BUFFERED},
-        Threading::{CreateEventW, INFINITE, WaitForMultipleObjects},
+        Threading::{CreateEventW, WaitForMultipleObjects, INFINITE},
+        IO::DeviceIoControl,
     },
 };
 
@@ -499,31 +499,28 @@ impl Device {
     /// - Automatically infers buffer sizes from the referenced types
     /// - Handles null pointers for unused input/output buffers via Option types
     /// - Provides consistent error handling and returns bytes transferred on success
-    fn call_device_ioctl<I: ?Sized, O: ?Sized>(
+    fn ioctl<I: ?Sized, O: ?Sized>(
         &self,
-        ioctl_code: u32,
+        code: u32,
         input: Option<&I>,
         output: Option<&mut O>,
     ) -> Result<u32, InterceptionError> {
         let mut bytes_returned = 0;
 
         let (input_buffer, input_size) = match input {
-            Some(data) => (
-                data as *const I as *const c_void,
-                mem::size_of_val(data) as u32,
-            ),
+            Some(data) => (data as *const I as *const c_void, size_of_val(data) as u32),
             None => (ptr::null(), 0),
         };
 
         let (output_buffer, output_size) = match output {
-            Some(data) => (data as *mut O as *mut c_void, mem::size_of_val(data) as u32),
+            Some(data) => (data as *mut O as *mut c_void, size_of_val(data) as u32),
             None => (ptr::null_mut(), 0),
         };
 
         unsafe {
             let result = DeviceIoControl(
                 self.handle,
-                ioctl_code,
+                code,
                 input_buffer,
                 input_size,
                 output_buffer,
@@ -541,21 +538,13 @@ impl Device {
     }
 
     /// Helper for device I/O control operations that only send input
-    fn call_device_ioctl_input_only<I: ?Sized>(
-        &self,
-        ioctl_code: u32,
-        input: &I,
-    ) -> Result<u32, InterceptionError> {
-        self.call_device_ioctl(ioctl_code, Some(input), None::<&mut ()>)
+    fn ioctl_in<I: ?Sized>(&self, code: u32, input: &I) -> Result<u32, InterceptionError> {
+        self.ioctl(code, Some(input), None::<&mut ()>)
     }
 
     /// Helper for device I/O control operations that only receive output
-    fn call_device_ioctl_output_only<O: ?Sized>(
-        &self,
-        ioctl_code: u32,
-        output: &mut O,
-    ) -> Result<u32, InterceptionError> {
-        self.call_device_ioctl(ioctl_code, None::<&()>, Some(output))
+    fn ioctl_out<O: ?Sized>(&self, code: u32, output: &mut O) -> Result<u32, InterceptionError> {
+        self.ioctl(code, None::<&()>, Some(output))
     }
 
     fn new(index: usize) -> Result<Self, InterceptionError> {
@@ -598,7 +587,7 @@ impl Device {
                 handle,
                 IOCTL_SET_EVENT,
                 event_handles.as_ptr() as *const _,
-                (event_handles.len() * mem::size_of::<HANDLE>()) as u32,
+                size_of_val(&event_handles) as u32,
                 ptr::null_mut(),
                 0,
                 &mut bytes_returned,
@@ -618,27 +607,27 @@ impl Device {
 
     /// Set filter for this device
     fn set_filter(&self, filter: Filter) -> Result<(), InterceptionError> {
-        self.call_device_ioctl_input_only(IOCTL_SET_FILTER, &filter)?;
+        self.ioctl_in(IOCTL_SET_FILTER, &filter)?;
         Ok(())
     }
 
     /// Get filter for this device
     fn get_filter(&self) -> Result<Filter, InterceptionError> {
         let mut filter: Filter = FILTER_NONE;
-        self.call_device_ioctl_output_only(IOCTL_GET_FILTER, &mut filter)?;
+        self.ioctl_out(IOCTL_GET_FILTER, &mut filter)?;
         Ok(filter)
     }
 
     /// Set precedence for this device
     fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
-        self.call_device_ioctl_input_only(IOCTL_SET_PRECEDENCE, &precedence)?;
+        self.ioctl_in(IOCTL_SET_PRECEDENCE, &precedence)?;
         Ok(())
     }
 
     /// Get precedence for this device
     fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
         let mut precedence: Precedence = 0;
-        self.call_device_ioctl_output_only(IOCTL_GET_PRECEDENCE, &mut precedence)?;
+        self.ioctl_out(IOCTL_GET_PRECEDENCE, &mut precedence)?;
         Ok(precedence)
     }
 
@@ -647,8 +636,7 @@ impl Device {
         // Try with a reasonable buffer size first
         let mut buffer = vec![0u8; 512];
 
-        let output_size =
-            self.call_device_ioctl_output_only(IOCTL_GET_HARDWARE_ID, buffer.as_mut_slice())?;
+        let output_size = self.ioctl_out(IOCTL_GET_HARDWARE_ID, buffer.as_mut_slice())?;
 
         buffer.truncate(output_size as usize);
         Ok(buffer)
@@ -660,8 +648,8 @@ impl Device {
             return Ok(0);
         }
 
-        let strokes_written = self.call_device_ioctl_input_only(IOCTL_WRITE, strokes)?;
-        Ok((strokes_written as usize) / mem::size_of::<T>())
+        let strokes_written = self.ioctl_in(IOCTL_WRITE, strokes)?;
+        Ok((strokes_written as usize) / size_of::<T>())
     }
 
     /// Generic function to receive strokes from a device
@@ -672,10 +660,9 @@ impl Device {
 
         let mut raw_strokes: Vec<T> = vec![T::default(); max_strokes];
 
-        let strokes_read =
-            self.call_device_ioctl_output_only(IOCTL_READ, raw_strokes.as_mut_slice())?;
+        let strokes_read = self.ioctl_out(IOCTL_READ, raw_strokes.as_mut_slice())?;
 
-        let strokes_count = (strokes_read as usize) / mem::size_of::<T>();
+        let strokes_count = (strokes_read as usize) / size_of::<T>();
         raw_strokes.truncate(strokes_count);
 
         Ok(raw_strokes)
