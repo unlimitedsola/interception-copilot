@@ -48,7 +48,9 @@
 
 #![cfg(windows)]
 
+use std::error::Error;
 use std::ffi::{c_int, c_long, c_short, c_uint, c_ulong, c_ushort};
+use std::fmt::Display;
 use std::mem;
 use std::ptr;
 use windows_sys::Win32::{
@@ -815,7 +817,7 @@ pub enum InterceptionError {
     WaitFailed(u32),
 }
 
-impl std::fmt::Display for InterceptionError {
+impl Display for InterceptionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InterceptionError::CreateFile(code) => {
@@ -842,7 +844,7 @@ impl std::fmt::Display for InterceptionError {
     }
 }
 
-impl std::error::Error for InterceptionError {}
+impl Error for InterceptionError {}
 
 #[cfg(test)]
 mod tests {
