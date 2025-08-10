@@ -28,10 +28,11 @@
 //! ];
 //! keyboard.send(&key_strokes).expect("Failed to send keyboard strokes");
 //!
-//! // Create mouse strokes with type safety
+//! // Create mouse strokes using the new constructor
+//! use interception_copilot::{MOUSE_MOVE_ABSOLUTE, MOUSE_LEFT_BUTTON_DOWN, MOUSE_MOVE_RELATIVE};
 //! let mouse_strokes = vec![
-//!     MouseStroke::move_to(100, 200),
-//!     MouseStroke::button_down(1),
+//!     MouseStroke::new(MOUSE_MOVE_ABSOLUTE, 0, 0, 100, 200, 0),  // Move to (100, 200)
+//!     MouseStroke::new(MOUSE_MOVE_RELATIVE, MOUSE_LEFT_BUTTON_DOWN, 0, 0, 0, 0),  // Left button down
 //! ];
 //! mouse.send(&mouse_strokes).expect("Failed to send mouse strokes");
 //! ```
@@ -348,21 +349,6 @@ impl MouseStroke {
             y,
             information,
         }
-    }
-
-    /// Create a mouse button down stroke
-    pub fn button_down(state: MouseState) -> Self {
-        Self::new(MOUSE_MOVE_RELATIVE, state, 0, 0, 0, 0)
-    }
-
-    /// Create a mouse button up stroke
-    pub fn button_up(state: MouseState) -> Self {
-        Self::new(MOUSE_MOVE_RELATIVE, state, 0, 0, 0, 0)
-    }
-
-    /// Create a mouse movement stroke to absolute coordinates
-    pub fn move_to(x: c_long, y: c_long) -> Self {
-        Self::new(MOUSE_MOVE_ABSOLUTE, 0, 0, x, y, 0)
     }
 }
 
