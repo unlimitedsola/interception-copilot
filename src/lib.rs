@@ -506,24 +506,13 @@ impl Device {
 
             // Set the event handle for the device using original DeviceIoControl approach
             let event_handles = [event, ptr::null()];
-            let mut bytes_returned = 0;
 
-            let result = DeviceIoControl(
-                handle,
-                IOCTL_SET_EVENT,
-                event_handles.as_ptr() as *const _,
-                size_of_val(&event_handles) as u32,
-                ptr::null_mut(),
-                0,
-                &mut bytes_returned,
-                ptr::null_mut(),
-            );
+            let result = ioctl_in(handle, IOCTL_SET_EVENT, &event_handles);
 
-            if result == 0 {
-                let error = GetLastError();
+            if let Err(e) = result {
                 CloseHandle(handle);
                 CloseHandle(event);
-                return Err(InterceptionError::DeviceIoControl(error));
+                return Err(e);
             }
 
             Ok(Device { handle, event })
