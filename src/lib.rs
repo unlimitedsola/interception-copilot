@@ -285,6 +285,11 @@ impl KeyStroke {
     }
 }
 
+/// Trait for stroke types that can be sent/received through device I/O operations
+trait Stroke: Default + Clone + Sized {
+    // This trait provides a unified interface for both KeyStroke and MouseStroke types
+}
+
 /// `MOUSE_INPUT_DATA` structure
 /// <https://learn.microsoft.com/en-us/windows/win32/api/ntddmou/ns-ntddmou-mouse_input_data>
 #[derive(Debug, Clone)]
@@ -352,6 +357,68 @@ impl MouseStroke {
     }
 }
 
+// Implement the Stroke trait for both KeyStroke and MouseStroke
+impl Stroke for KeyStroke {}
+impl Stroke for MouseStroke {}
+
+/// Generic function to send strokes to a device
+fn send_strokes<T: Stroke>(handle: HANDLE, strokes: &[T]) -> Result<usize, InterceptionError> {
+    if strokes.is_empty() {
+        return Ok(0);
+    }
+
+    let mut strokes_written = 0;
+    unsafe {
+        let result = DeviceIoControl(
+            handle,
+            IOCTL_WRITE,
+            strokes.as_ptr() as *const _,
+            size_of_val(strokes) as u32,
+            ptr::null_mut(),
+            0,
+            &mut strokes_written,
+            ptr::null_mut(),
+        );
+
+        if result == 0 {
+            return Err(InterceptionError::DeviceIoControl(GetLastError()));
+        }
+    }
+
+    Ok((strokes_written as usize) / size_of::<T>())
+}
+
+/// Generic function to receive strokes from a device
+fn receive_strokes<T: Stroke>(
+    handle: HANDLE,
+    max_strokes: usize,
+) -> Result<Vec<T>, InterceptionError> {
+    let mut raw_strokes: Vec<T> = vec![T::default(); max_strokes];
+
+    let mut strokes_read = 0;
+    unsafe {
+        let result = DeviceIoControl(
+            handle,
+            IOCTL_READ,
+            ptr::null(),
+            0,
+            raw_strokes.as_mut_ptr() as *mut _,
+            (max_strokes * size_of::<T>()) as u32,
+            &mut strokes_read,
+            ptr::null_mut(),
+        );
+
+        if result == 0 {
+            return Err(InterceptionError::DeviceIoControl(GetLastError()));
+        }
+    }
+
+    let strokes_count = (strokes_read as usize) / size_of::<T>();
+    raw_strokes.truncate(strokes_count);
+
+    Ok(raw_strokes)
+}
+
 /// A keyboard input device for intercepting and injecting keyboard events
 pub struct KeyboardDevice {
     handle: Device,
@@ -396,12 +463,7 @@ impl KeyboardDevice {
 
     /// Send keyboard strokes to this device
     pub fn send(&self, strokes: &[KeyStroke]) -> Result<usize, InterceptionError> {
-        if strokes.is_empty() {
-            return Ok(0);
-        }
-
-        let strokes_written = self.send_keyboard_strokes(strokes)?;
-        Ok(strokes_written)
+        send_strokes(self.handle.handle, strokes)
     }
 
     /// Receive keyboard strokes from this device
@@ -410,7 +472,7 @@ impl KeyboardDevice {
             return Ok(Vec::new());
         }
 
-        self.receive_keyboard_strokes(max_strokes)
+        receive_strokes(self.handle.handle, max_strokes)
     }
 
     /// Get hardware ID for this keyboard device
@@ -421,63 +483,6 @@ impl KeyboardDevice {
     /// Get the underlying device handle for advanced operations
     pub fn handle(&self) -> &Device {
         &self.handle
-    }
-
-    fn send_keyboard_strokes(&self, strokes: &[KeyStroke]) -> Result<usize, InterceptionError> {
-        if strokes.is_empty() {
-            return Ok(0);
-        }
-
-        let mut strokes_written = 0;
-        unsafe {
-            let result = DeviceIoControl(
-                self.handle.handle,
-                IOCTL_WRITE,
-                strokes.as_ptr() as *const _,
-                size_of_val(strokes) as u32,
-                ptr::null_mut(),
-                0,
-                &mut strokes_written,
-                ptr::null_mut(),
-            );
-
-            if result == 0 {
-                return Err(InterceptionError::DeviceIoControl(GetLastError()));
-            }
-        }
-
-        Ok((strokes_written as usize) / size_of::<KeyStroke>())
-    }
-
-    fn receive_keyboard_strokes(
-        &self,
-        max_strokes: usize,
-    ) -> Result<Vec<KeyStroke>, InterceptionError> {
-        // Allocate memory using Rust's Vec for safety
-        let mut raw_strokes: Vec<KeyStroke> = vec![KeyStroke::default(); max_strokes];
-
-        let mut strokes_read = 0;
-        unsafe {
-            let result = DeviceIoControl(
-                self.handle.handle,
-                IOCTL_READ,
-                ptr::null(),
-                0,
-                raw_strokes.as_mut_ptr() as *mut _,
-                (max_strokes * size_of::<KeyStroke>()) as u32,
-                &mut strokes_read,
-                ptr::null_mut(),
-            );
-
-            if result == 0 {
-                return Err(InterceptionError::DeviceIoControl(GetLastError()));
-            }
-        }
-
-        let strokes_count = (strokes_read as usize) / size_of::<KeyStroke>();
-        raw_strokes.truncate(strokes_count);
-
-        Ok(raw_strokes)
     }
 }
 
@@ -526,12 +531,7 @@ impl MouseDevice {
 
     /// Send mouse strokes to this device
     pub fn send(&self, strokes: &[MouseStroke]) -> Result<usize, InterceptionError> {
-        if strokes.is_empty() {
-            return Ok(0);
-        }
-
-        let strokes_written = self.send_mouse_strokes(strokes)?;
-        Ok(strokes_written)
+        send_strokes(self.handle.handle, strokes)
     }
 
     /// Receive mouse strokes from this device
@@ -540,7 +540,7 @@ impl MouseDevice {
             return Ok(Vec::new());
         }
 
-        self.receive_mouse_strokes(max_strokes)
+        receive_strokes(self.handle.handle, max_strokes)
     }
 
     /// Get hardware ID for this mouse device
@@ -551,62 +551,6 @@ impl MouseDevice {
     /// Get the underlying device handle for advanced operations
     pub fn handle(&self) -> &Device {
         &self.handle
-    }
-
-    fn send_mouse_strokes(&self, strokes: &[MouseStroke]) -> Result<usize, InterceptionError> {
-        if strokes.is_empty() {
-            return Ok(0);
-        }
-
-        let mut strokes_written = 0;
-        unsafe {
-            let result = DeviceIoControl(
-                self.handle.handle,
-                IOCTL_WRITE,
-                strokes.as_ptr() as *const _,
-                size_of_val(strokes) as u32,
-                ptr::null_mut(),
-                0,
-                &mut strokes_written,
-                ptr::null_mut(),
-            );
-
-            if result == 0 {
-                return Err(InterceptionError::DeviceIoControl(GetLastError()));
-            }
-        }
-
-        Ok((strokes_written as usize) / size_of::<MouseStroke>())
-    }
-
-    fn receive_mouse_strokes(
-        &self,
-        max_strokes: usize,
-    ) -> Result<Vec<MouseStroke>, InterceptionError> {
-        let mut raw_strokes: Vec<MouseStroke> = vec![MouseStroke::default(); max_strokes];
-
-        let mut strokes_read = 0;
-        unsafe {
-            let result = DeviceIoControl(
-                self.handle.handle,
-                IOCTL_READ,
-                ptr::null(),
-                0,
-                raw_strokes.as_mut_ptr() as *mut _,
-                (max_strokes * size_of::<MouseStroke>()) as u32,
-                &mut strokes_read,
-                ptr::null_mut(),
-            );
-
-            if result == 0 {
-                return Err(InterceptionError::DeviceIoControl(GetLastError()));
-            }
-        }
-
-        let strokes_count = (strokes_read as usize) / size_of::<MouseStroke>();
-        raw_strokes.truncate(strokes_count);
-
-        Ok(raw_strokes)
     }
 }
 
