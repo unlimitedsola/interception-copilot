@@ -362,9 +362,7 @@ impl Stroke for KeyStroke {}
 impl Stroke for MouseStroke {}
 
 /// A keyboard input device for intercepting and injecting keyboard events
-pub struct KeyboardDevice {
-    handle: Device,
-}
+pub struct KeyboardDevice(Device);
 
 impl KeyboardDevice {
     /// Create a new keyboard device
@@ -380,32 +378,32 @@ impl KeyboardDevice {
         }
 
         let handle = Device::new(index)?;
-        Ok(KeyboardDevice { handle })
+        Ok(KeyboardDevice(handle))
     }
 
     /// Set filter for this keyboard device
     pub fn set_filter(&self, filter: KeyFilter) -> Result<(), InterceptionError> {
-        self.handle.set_filter(filter)
+        self.0.set_filter(filter)
     }
 
     /// Get filter for this keyboard device
     pub fn get_filter(&self) -> Result<KeyFilter, InterceptionError> {
-        self.handle.get_filter()
+        self.0.get_filter()
     }
 
     /// Set precedence for this keyboard device
     pub fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
-        self.handle.set_precedence(precedence)
+        self.0.set_precedence(precedence)
     }
 
     /// Get precedence for this keyboard device
     pub fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
-        self.handle.get_precedence()
+        self.0.get_precedence()
     }
 
     /// Send keyboard strokes to this device
     pub fn send(&self, strokes: &[KeyStroke]) -> Result<usize, InterceptionError> {
-        self.handle.send_strokes(strokes)
+        self.0.send_strokes(strokes)
     }
 
     /// Receive keyboard strokes from this device
@@ -414,24 +412,22 @@ impl KeyboardDevice {
             return Ok(Vec::new());
         }
 
-        self.handle.receive_strokes(max_strokes)
+        self.0.receive_strokes(max_strokes)
     }
 
     /// Get hardware ID for this keyboard device
     pub fn get_hardware_id(&self) -> Result<Vec<u8>, InterceptionError> {
-        self.handle.get_hardware_id()
+        self.0.get_hardware_id()
     }
 
     /// Get the underlying device handle for advanced operations
     pub fn handle(&self) -> &Device {
-        &self.handle
+        &self.0
     }
 }
 
 /// A mouse input device for intercepting and injecting mouse events
-pub struct MouseDevice {
-    handle: Device,
-}
+pub struct MouseDevice(Device);
 
 impl MouseDevice {
     /// Create a new mouse device
@@ -448,32 +444,32 @@ impl MouseDevice {
 
         let device_index = INTERCEPTION_MAX_KEYBOARD + index;
         let handle = Device::new(device_index)?;
-        Ok(MouseDevice { handle })
+        Ok(MouseDevice(handle))
     }
 
     /// Set filter for this mouse device
     pub fn set_filter(&self, filter: MouseFilter) -> Result<(), InterceptionError> {
-        self.handle.set_filter(filter)
+        self.0.set_filter(filter)
     }
 
     /// Get filter for this mouse device
     pub fn get_filter(&self) -> Result<MouseFilter, InterceptionError> {
-        self.handle.get_filter()
+        self.0.get_filter()
     }
 
     /// Set precedence for this mouse device
     pub fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
-        self.handle.set_precedence(precedence)
+        self.0.set_precedence(precedence)
     }
 
     /// Get precedence for this mouse device
     pub fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
-        self.handle.get_precedence()
+        self.0.get_precedence()
     }
 
     /// Send mouse strokes to this device
     pub fn send(&self, strokes: &[MouseStroke]) -> Result<usize, InterceptionError> {
-        self.handle.send_strokes(strokes)
+        self.0.send_strokes(strokes)
     }
 
     /// Receive mouse strokes from this device
@@ -482,17 +478,17 @@ impl MouseDevice {
             return Ok(Vec::new());
         }
 
-        self.handle.receive_strokes(max_strokes)
+        self.0.receive_strokes(max_strokes)
     }
 
     /// Get hardware ID for this mouse device
     pub fn get_hardware_id(&self) -> Result<Vec<u8>, InterceptionError> {
-        self.handle.get_hardware_id()
+        self.0.get_hardware_id()
     }
 
     /// Get the underlying device handle for advanced operations
     pub fn handle(&self) -> &Device {
-        &self.handle
+        &self.0
     }
 }
 
