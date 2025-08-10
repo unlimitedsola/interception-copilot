@@ -1,10 +1,10 @@
 [package]
-name = "interception-copilot"
+name = "interception"
 version = "0.1.0"
 edition = "2024"
-authors = ["Interception Copilot"]
+authors = ["Interception"]
 description = "Rust port of the Interception library using windows-sys with a safe API"
-license = "LGPL-3.0"
+license = "LGPL-3.0-only"
 repository = "https://github.com/unlimitedsola/interception-copilot"
 documentation = "https://docs.rs/interception-copilot"
 keywords = ["windows", "input", "keyboard", "mouse", "interception"]
