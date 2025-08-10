@@ -410,10 +410,6 @@ impl KeyboardDevice {
 
     /// Receive keyboard strokes from this device
     pub fn receive(&self, max_strokes: usize) -> Result<Vec<KeyStroke>, InterceptionError> {
-        if max_strokes == 0 {
-            return Ok(Vec::new());
-        }
-
         self.0.receive_strokes(max_strokes)
     }
 
@@ -476,10 +472,6 @@ impl MouseDevice {
 
     /// Receive mouse strokes from this device
     pub fn receive(&self, max_strokes: usize) -> Result<Vec<MouseStroke>, InterceptionError> {
-        if max_strokes == 0 {
-            return Ok(Vec::new());
-        }
-
         self.0.receive_strokes(max_strokes)
     }
 
@@ -712,6 +704,10 @@ impl Device {
 
     /// Generic function to receive strokes from a device
     fn receive_strokes<T: Stroke>(&self, max_strokes: usize) -> Result<Vec<T>, InterceptionError> {
+        if max_strokes == 0 {
+            return Ok(Vec::new());
+        }
+
         let mut raw_strokes: Vec<T> = vec![T::default(); max_strokes];
 
         let mut strokes_read = 0;
