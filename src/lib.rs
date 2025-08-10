@@ -267,11 +267,6 @@ impl KeyStroke {
     }
 }
 
-/// Trait for stroke types that can be sent/received through device I/O operations
-trait Stroke: Default + Clone + Sized {
-    // This trait provides a unified interface for both KeyStroke and MouseStroke types
-}
-
 /// `MOUSE_INPUT_DATA` structure
 /// <https://learn.microsoft.com/en-us/windows/win32/api/ntddmou/ns-ntddmou-mouse_input_data>
 #[derive(Debug, Clone)]
@@ -337,6 +332,11 @@ impl MouseStroke {
             information,
         }
     }
+}
+
+/// Trait for stroke types that can be sent/received through device I/O operations
+trait Stroke: Default + Clone + Sized {
+    // This trait provides a unified interface for both KeyStroke and MouseStroke types
 }
 
 // Implement the Stroke trait for both KeyStroke and MouseStroke
@@ -720,14 +720,8 @@ pub enum InterceptionError {
     CreateEvent(u32),
     /// Device I/O control failed
     DeviceIoControl(u32),
-    /// Invalid path or string conversion
-    InvalidPath,
     /// Invalid device ID
     InvalidDevice,
-    /// Context not initialized
-    ContextNotInitialized,
-    /// Memory allocation failed
-    MemoryAllocation,
     /// Wait operation failed or timed out
     WaitFailed(u32),
 }
@@ -744,14 +738,7 @@ impl Display for InterceptionError {
             InterceptionError::DeviceIoControl(code) => {
                 write!(f, "Device I/O control failed, error code: {code}")
             }
-            InterceptionError::InvalidPath => {
-                write!(f, "Invalid device path or string conversion error")
-            }
             InterceptionError::InvalidDevice => write!(f, "Invalid device ID"),
-            InterceptionError::ContextNotInitialized => {
-                write!(f, "Interception context is not initialized")
-            }
-            InterceptionError::MemoryAllocation => write!(f, "Memory allocation failed"),
             InterceptionError::WaitFailed(code) => {
                 write!(f, "Wait operation failed or timed out, error code: {code}")
             }
