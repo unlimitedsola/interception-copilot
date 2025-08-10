@@ -49,7 +49,7 @@
 #![cfg(windows)]
 
 use std::error::Error;
-use std::ffi::{c_int, c_long, c_short, c_uint, c_ulong, c_ushort};
+use std::ffi::{c_int, c_long, c_short, c_uint, c_ulong, c_ushort, c_void};
 use std::fmt::Display;
 use std::mem;
 use std::ptr;
@@ -88,6 +88,43 @@ const IOCTL_GET_HARDWARE_ID: u32 =
 // Helper function to construct IOCTL codes
 const fn ctl_code(device_type: u32, function: u32, method: u32, access: u32) -> u32 {
     (device_type << 16) | (access << 14) | (function << 2) | method
+}
+
+/// Generic wrapper for DeviceIoControl that abstracts away verbosity and handles common error patterns
+/// 
+/// This function encapsulates the common DeviceIoControl usage pattern throughout the library:
+/// - Handles null pointers for unused input/output buffers
+/// - Provides consistent error handling
+/// - Returns bytes_returned value on success
+/// - Abstracts away the repetitive error checking and GetLastError calls
+fn device_io_control_wrapper(
+    handle: HANDLE,
+    ioctl_code: u32,
+    input_buffer: *const c_void,
+    input_size: u32,
+    output_buffer: *mut c_void,
+    output_size: u32,
+) -> Result<u32, InterceptionError> {
+    let mut bytes_returned = 0;
+
+    unsafe {
+        let result = DeviceIoControl(
+            handle,
+            ioctl_code,
+            input_buffer,
+            input_size,
+            output_buffer,
+            output_size,
+            &mut bytes_returned,
+            ptr::null_mut(),
+        );
+
+        if result == 0 {
+            return Err(InterceptionError::DeviceIoControl(GetLastError()));
+        }
+    }
+
+    Ok(bytes_returned)
 }
 
 /// Precedence value for device handling order
@@ -526,25 +563,20 @@ impl Device {
 
             // Set the event handle for the device
             let event_handles = [event, ptr::null()];
-            let mut bytes_returned = 0;
 
-            let result = DeviceIoControl(
+            device_io_control_wrapper(
                 handle,
                 IOCTL_SET_EVENT,
-                event_handles.as_ptr() as *const _,
-                (event_handles.len() * size_of::<HANDLE>()) as u32,
+                event_handles.as_ptr() as *const c_void,
+                (event_handles.len() * mem::size_of::<HANDLE>()) as u32,
                 ptr::null_mut(),
                 0,
-                &mut bytes_returned,
-                ptr::null_mut(),
-            );
-
-            if result == 0 {
+            ).map_err(|_| {
                 let error = GetLastError();
                 CloseHandle(handle);
                 CloseHandle(event);
-                return Err(InterceptionError::DeviceIoControl(error));
-            }
+                InterceptionError::DeviceIoControl(error)
+            })?;
 
             Ok(Device { handle, event })
         }
@@ -552,24 +584,14 @@ impl Device {
 
     /// Set filter for this device
     fn set_filter(&self, filter: Filter) -> Result<(), InterceptionError> {
-        let mut bytes_returned = 0;
-
-        unsafe {
-            let result = DeviceIoControl(
-                self.handle,
-                IOCTL_SET_FILTER,
-                &filter as *const _ as *const _,
-                size_of::<Filter>() as u32,
-                ptr::null_mut(),
-                0,
-                &mut bytes_returned,
-                ptr::null_mut(),
-            );
-
-            if result == 0 {
-                return Err(InterceptionError::DeviceIoControl(GetLastError()));
-            }
-        }
+        device_io_control_wrapper(
+            self.handle,
+            IOCTL_SET_FILTER,
+            &filter as *const _ as *const c_void,
+            mem::size_of::<Filter>() as u32,
+            ptr::null_mut(),
+            0,
+        )?;
 
         Ok(())
     }
@@ -577,48 +599,29 @@ impl Device {
     /// Get filter for this device
     fn get_filter(&self) -> Result<Filter, InterceptionError> {
         let mut filter: Filter = FILTER_NONE;
-        let mut bytes_returned = 0;
 
-        unsafe {
-            let result = DeviceIoControl(
-                self.handle,
-                IOCTL_GET_FILTER,
-                ptr::null(),
-                0,
-                &mut filter as *mut _ as *mut _,
-                size_of::<Filter>() as u32,
-                &mut bytes_returned,
-                ptr::null_mut(),
-            );
-
-            if result == 0 {
-                return Err(InterceptionError::DeviceIoControl(GetLastError()));
-            }
-        }
+        device_io_control_wrapper(
+            self.handle,
+            IOCTL_GET_FILTER,
+            ptr::null(),
+            0,
+            &mut filter as *mut _ as *mut c_void,
+            mem::size_of::<Filter>() as u32,
+        )?;
 
         Ok(filter)
     }
 
     /// Set precedence for this device
     fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
-        let mut bytes_returned = 0;
-
-        unsafe {
-            let result = DeviceIoControl(
-                self.handle,
-                IOCTL_SET_PRECEDENCE,
-                &precedence as *const _ as *const _,
-                size_of::<Precedence>() as u32,
-                ptr::null_mut(),
-                0,
-                &mut bytes_returned,
-                ptr::null_mut(),
-            );
-
-            if result == 0 {
-                return Err(InterceptionError::DeviceIoControl(GetLastError()));
-            }
-        }
+        device_io_control_wrapper(
+            self.handle,
+            IOCTL_SET_PRECEDENCE,
+            &precedence as *const _ as *const c_void,
+            mem::size_of::<Precedence>() as u32,
+            ptr::null_mut(),
+            0,
+        )?;
 
         Ok(())
     }
@@ -626,24 +629,15 @@ impl Device {
     /// Get precedence for this device
     fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
         let mut precedence: Precedence = 0;
-        let mut bytes_returned = 0;
 
-        unsafe {
-            let result = DeviceIoControl(
-                self.handle,
-                IOCTL_GET_PRECEDENCE,
-                ptr::null(),
-                0,
-                &mut precedence as *mut _ as *mut _,
-                size_of::<Precedence>() as u32,
-                &mut bytes_returned,
-                ptr::null_mut(),
-            );
-
-            if result == 0 {
-                return Err(InterceptionError::DeviceIoControl(GetLastError()));
-            }
-        }
+        device_io_control_wrapper(
+            self.handle,
+            IOCTL_GET_PRECEDENCE,
+            ptr::null(),
+            0,
+            &mut precedence as *mut _ as *mut c_void,
+            mem::size_of::<Precedence>() as u32,
+        )?;
 
         Ok(precedence)
     }
@@ -652,27 +646,18 @@ impl Device {
     fn get_hardware_id(&self) -> Result<Vec<u8>, InterceptionError> {
         // Try with a reasonable buffer size first
         let mut buffer = vec![0u8; 512];
-        let mut output_size = 0;
 
-        unsafe {
-            let result = DeviceIoControl(
-                self.handle,
-                IOCTL_GET_HARDWARE_ID,
-                ptr::null(),
-                0,
-                buffer.as_mut_ptr() as *mut _,
-                buffer.len() as u32,
-                &mut output_size,
-                ptr::null_mut(),
-            );
+        let output_size = device_io_control_wrapper(
+            self.handle,
+            IOCTL_GET_HARDWARE_ID,
+            ptr::null(),
+            0,
+            buffer.as_mut_ptr() as *mut c_void,
+            buffer.len() as u32,
+        )?;
 
-            if result == 0 {
-                return Err(InterceptionError::DeviceIoControl(GetLastError()));
-            }
-
-            buffer.truncate(output_size as usize);
-            Ok(buffer)
-        }
+        buffer.truncate(output_size as usize);
+        Ok(buffer)
     }
 
     /// Generic function to send strokes to a device
@@ -681,25 +666,16 @@ impl Device {
             return Ok(0);
         }
 
-        let mut strokes_written = 0;
-        unsafe {
-            let result = DeviceIoControl(
-                self.handle,
-                IOCTL_WRITE,
-                strokes.as_ptr() as *const _,
-                size_of_val(strokes) as u32,
-                ptr::null_mut(),
-                0,
-                &mut strokes_written,
-                ptr::null_mut(),
-            );
+        let strokes_written = device_io_control_wrapper(
+            self.handle,
+            IOCTL_WRITE,
+            strokes.as_ptr() as *const c_void,
+            mem::size_of_val(strokes) as u32,
+            ptr::null_mut(),
+            0,
+        )?;
 
-            if result == 0 {
-                return Err(InterceptionError::DeviceIoControl(GetLastError()));
-            }
-        }
-
-        Ok((strokes_written as usize) / size_of::<T>())
+        Ok((strokes_written as usize) / mem::size_of::<T>())
     }
 
     /// Generic function to receive strokes from a device
@@ -710,25 +686,16 @@ impl Device {
 
         let mut raw_strokes: Vec<T> = vec![T::default(); max_strokes];
 
-        let mut strokes_read = 0;
-        unsafe {
-            let result = DeviceIoControl(
-                self.handle,
-                IOCTL_READ,
-                ptr::null(),
-                0,
-                raw_strokes.as_mut_ptr() as *mut _,
-                (max_strokes * size_of::<T>()) as u32,
-                &mut strokes_read,
-                ptr::null_mut(),
-            );
+        let strokes_read = device_io_control_wrapper(
+            self.handle,
+            IOCTL_READ,
+            ptr::null(),
+            0,
+            raw_strokes.as_mut_ptr() as *mut c_void,
+            (max_strokes * mem::size_of::<T>()) as u32,
+        )?;
 
-            if result == 0 {
-                return Err(InterceptionError::DeviceIoControl(GetLastError()));
-            }
-        }
-
-        let strokes_count = (strokes_read as usize) / size_of::<T>();
+        let strokes_count = (strokes_read as usize) / mem::size_of::<T>();
         raw_strokes.truncate(strokes_count);
 
         Ok(raw_strokes)
