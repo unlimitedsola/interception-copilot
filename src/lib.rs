@@ -90,7 +90,7 @@ pub const KEY_TERMSRV_SHADOW: KeyState = 0x10;
 /// Terminal Services virtual key packet
 pub const KEY_TERMSRV_VKPACKET: KeyState = 0x20;
 
-/// Mouse button and wheel state flags  
+/// Mouse button and wheel state flags
 pub type MouseState = c_ushort;
 /// Left mouse button down
 pub const MOUSE_LEFT_BUTTON_DOWN: MouseState = 0x001;
@@ -354,7 +354,7 @@ impl KeyboardDevice {
     ///
     /// # Errors
     /// Returns an error if the device cannot be created or if index is out of range
-    pub fn new(index: usize) -> Result<Self, InterceptionError> {
+    pub fn new(index: usize) -> Result<Self> {
         if index >= INTERCEPTION_MAX_KEYBOARD {
             return Err(InterceptionError::InvalidDevice);
         }
@@ -364,37 +364,37 @@ impl KeyboardDevice {
     }
 
     /// Set filter for this keyboard device
-    pub fn set_filter(&self, filter: KeyFilter) -> Result<(), InterceptionError> {
+    pub fn set_filter(&self, filter: KeyFilter) -> Result<()> {
         self.0.set_filter(filter)
     }
 
     /// Get filter for this keyboard device
-    pub fn get_filter(&self) -> Result<KeyFilter, InterceptionError> {
+    pub fn get_filter(&self) -> Result<KeyFilter> {
         self.0.get_filter()
     }
 
     /// Set precedence for this keyboard device
-    pub fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
+    pub fn set_precedence(&self, precedence: Precedence) -> Result<()> {
         self.0.set_precedence(precedence)
     }
 
     /// Get precedence for this keyboard device
-    pub fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
+    pub fn get_precedence(&self) -> Result<Precedence> {
         self.0.get_precedence()
     }
 
     /// Send keyboard strokes to this device
-    pub fn send(&self, strokes: &[KeyStroke]) -> Result<usize, InterceptionError> {
+    pub fn send(&self, strokes: &[KeyStroke]) -> Result<usize> {
         self.0.send_strokes(strokes)
     }
 
     /// Receive keyboard strokes from this device
-    pub fn receive(&self, max_strokes: usize) -> Result<Vec<KeyStroke>, InterceptionError> {
+    pub fn receive(&self, max_strokes: usize) -> Result<Vec<KeyStroke>> {
         self.0.receive_strokes(max_strokes)
     }
 
     /// Get hardware ID for this keyboard device
-    pub fn get_hardware_id(&self) -> Result<Vec<u8>, InterceptionError> {
+    pub fn get_hardware_id(&self) -> Result<Vec<u8>> {
         self.0.get_hardware_id()
     }
 
@@ -415,7 +415,7 @@ impl MouseDevice {
     ///
     /// # Errors
     /// Returns an error if the device cannot be created or if index is out of range
-    pub fn new(index: usize) -> Result<Self, InterceptionError> {
+    pub fn new(index: usize) -> Result<Self> {
         if index >= INTERCEPTION_MAX_MOUSE {
             return Err(InterceptionError::InvalidDevice);
         }
@@ -426,37 +426,37 @@ impl MouseDevice {
     }
 
     /// Set filter for this mouse device
-    pub fn set_filter(&self, filter: MouseFilter) -> Result<(), InterceptionError> {
+    pub fn set_filter(&self, filter: MouseFilter) -> Result<()> {
         self.0.set_filter(filter)
     }
 
     /// Get filter for this mouse device
-    pub fn get_filter(&self) -> Result<MouseFilter, InterceptionError> {
+    pub fn get_filter(&self) -> Result<MouseFilter> {
         self.0.get_filter()
     }
 
     /// Set precedence for this mouse device
-    pub fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
+    pub fn set_precedence(&self, precedence: Precedence) -> Result<()> {
         self.0.set_precedence(precedence)
     }
 
     /// Get precedence for this mouse device
-    pub fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
+    pub fn get_precedence(&self) -> Result<Precedence> {
         self.0.get_precedence()
     }
 
     /// Send mouse strokes to this device
-    pub fn send(&self, strokes: &[MouseStroke]) -> Result<usize, InterceptionError> {
+    pub fn send(&self, strokes: &[MouseStroke]) -> Result<usize> {
         self.0.send_strokes(strokes)
     }
 
     /// Receive mouse strokes from this device
-    pub fn receive(&self, max_strokes: usize) -> Result<Vec<MouseStroke>, InterceptionError> {
+    pub fn receive(&self, max_strokes: usize) -> Result<Vec<MouseStroke>> {
         self.0.receive_strokes(max_strokes)
     }
 
     /// Get hardware ID for this mouse device
-    pub fn get_hardware_id(&self) -> Result<Vec<u8>, InterceptionError> {
+    pub fn get_hardware_id(&self) -> Result<Vec<u8>> {
         self.0.get_hardware_id()
     }
 
@@ -472,7 +472,7 @@ pub struct Device {
 }
 
 impl Device {
-    fn new(index: usize) -> Result<Self, InterceptionError> {
+    fn new(index: usize) -> Result<Self> {
         let path = format!("\\\\.\\interception{index:02}");
 
         let device_handle = DeviceHandle::new(&path)?;
@@ -487,13 +487,13 @@ impl Device {
     }
 
     /// Set filter for this device
-    fn set_filter(&self, filter: Filter) -> Result<(), InterceptionError> {
+    fn set_filter(&self, filter: Filter) -> Result<()> {
         self.device_handle.ioctl_in(IOCTL_SET_FILTER, &filter)?;
         Ok(())
     }
 
     /// Get filter for this device
-    fn get_filter(&self) -> Result<Filter, InterceptionError> {
+    fn get_filter(&self) -> Result<Filter> {
         let mut filter: Filter = FILTER_NONE;
         self.device_handle
             .ioctl_out(IOCTL_GET_FILTER, &mut filter)?;
@@ -501,14 +501,14 @@ impl Device {
     }
 
     /// Set precedence for this device
-    fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
+    fn set_precedence(&self, precedence: Precedence) -> Result<()> {
         self.device_handle
             .ioctl_in(IOCTL_SET_PRECEDENCE, &precedence)?;
         Ok(())
     }
 
     /// Get precedence for this device
-    fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
+    fn get_precedence(&self) -> Result<Precedence> {
         let mut precedence: Precedence = 0;
         self.device_handle
             .ioctl_out(IOCTL_GET_PRECEDENCE, &mut precedence)?;
@@ -516,7 +516,7 @@ impl Device {
     }
 
     /// Get hardware ID for this device
-    fn get_hardware_id(&self) -> Result<Vec<u8>, InterceptionError> {
+    fn get_hardware_id(&self) -> Result<Vec<u8>> {
         // Try with a reasonable buffer size first
         let mut buffer = vec![0u8; 512];
 
@@ -529,7 +529,7 @@ impl Device {
     }
 
     /// Generic function to send strokes to a device
-    fn send_strokes<T: Stroke>(&self, strokes: &[T]) -> Result<usize, InterceptionError> {
+    fn send_strokes<T: Stroke>(&self, strokes: &[T]) -> Result<usize> {
         if strokes.is_empty() {
             return Ok(0);
         }
@@ -539,7 +539,7 @@ impl Device {
     }
 
     /// Generic function to receive strokes from a device
-    fn receive_strokes<T: Stroke>(&self, max_strokes: usize) -> Result<Vec<T>, InterceptionError> {
+    fn receive_strokes<T: Stroke>(&self, max_strokes: usize) -> Result<Vec<T>> {
         if max_strokes == 0 {
             return Ok(Vec::new());
         }
@@ -604,7 +604,7 @@ pub fn wait_for_input(device_handles: &[&WaitHandle]) -> Option<usize> {
 struct DeviceHandle(HANDLE);
 
 impl DeviceHandle {
-    fn new(path: &str) -> Result<Self, InterceptionError> {
+    fn new(path: &str) -> Result<Self> {
         let path_w: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
         unsafe {
             let handle = CreateFileW(
@@ -631,7 +631,7 @@ impl DeviceHandle {
         code: u32,
         input: Option<&I>,
         output: Option<&mut O>,
-    ) -> Result<u32, InterceptionError> {
+    ) -> Result<u32> {
         let mut bytes_returned = 0;
 
         let (input_ptr, input_size) = match input {
@@ -664,11 +664,11 @@ impl DeviceHandle {
         Ok(bytes_returned)
     }
 
-    fn ioctl_in<I: ?Sized>(&self, code: u32, input: &I) -> Result<u32, InterceptionError> {
+    fn ioctl_in<I: ?Sized>(&self, code: u32, input: &I) -> Result<u32> {
         self.ioctl(code, Some(input), None::<&mut ()>)
     }
 
-    fn ioctl_out<O: ?Sized>(&self, code: u32, output: &mut O) -> Result<u32, InterceptionError> {
+    fn ioctl_out<O: ?Sized>(&self, code: u32, output: &mut O) -> Result<u32> {
         self.ioctl(code, None::<&()>, Some(output))
     }
 }
@@ -684,7 +684,7 @@ impl Drop for DeviceHandle {
 pub struct WaitHandle(HANDLE);
 
 impl WaitHandle {
-    fn new() -> Result<Self, InterceptionError> {
+    fn new() -> Result<Self> {
         unsafe {
             let handle = CreateEventW(
                 ptr::null(),
@@ -729,6 +729,8 @@ const IOCTL_GET_HARDWARE_ID: u32 =
 const fn ctl_code(device_type: u32, function: u32, method: u32, access: u32) -> u32 {
     (device_type << 16) | (access << 14) | (function << 2) | method
 }
+
+type Result<T, E = InterceptionError> = std::result::Result<T, E>;
 
 /// Error types for Interception operations
 #[derive(Debug, Clone)]
