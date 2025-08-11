@@ -1,4 +1,4 @@
-//! # Interception Copilot
+//! # Interception
 //!
 //! Rust port of the [Interception library](https://github.com/oblitum/Interception)
 //! using `windows-sys` with a safe API for intercepting keyboard and mouse input on Windows.
@@ -11,7 +11,7 @@
 //! The library provides type-safe device structures that prevent misuse:
 //!
 //! ```rust,no_run
-//! use interception_copilot::{KeyboardDevice, MouseDevice, KeyStroke, MouseStroke, FILTER_KEY_ALL, FILTER_MOUSE_ALL};
+//! use interception::{KeyboardDevice, MouseDevice, KeyStroke, MouseStroke, FILTER_KEY_ALL, FILTER_MOUSE_ALL};
 //!
 //! // Create type-safe keyboard device  
 //! let keyboard = KeyboardDevice::new(0).expect("Failed to create keyboard device");
@@ -29,7 +29,7 @@
 //! keyboard.send(&key_strokes).expect("Failed to send keyboard strokes");
 //!
 //! // Create mouse strokes using the new constructor
-//! use interception_copilot::{MOUSE_MOVE_ABSOLUTE, MOUSE_LEFT_BUTTON_DOWN, MOUSE_MOVE_RELATIVE};
+//! use interception::{MOUSE_MOVE_ABSOLUTE, MOUSE_LEFT_BUTTON_DOWN, MOUSE_MOVE_RELATIVE};
 //! let mouse_strokes = vec![
 //!     MouseStroke::new(MOUSE_MOVE_ABSOLUTE, 0, 0, 100, 200, 0),  // Move to (100, 200)
 //!     MouseStroke::new(MOUSE_MOVE_RELATIVE, MOUSE_LEFT_BUTTON_DOWN, 0, 0, 0, 0),  // Left button down
@@ -398,9 +398,9 @@ impl KeyboardDevice {
         self.0.get_hardware_id()
     }
 
-    /// Get the underlying device handle for advanced operations
-    pub fn handle(&self) -> &Device {
-        &self.0
+    /// Get the underlying wait handle for polling input events
+    pub fn wait_handle(&self) -> &WaitHandle {
+        &self.0.wait_handle
     }
 }
 
@@ -460,23 +460,152 @@ impl MouseDevice {
         self.0.get_hardware_id()
     }
 
-    /// Get the underlying device handle for advanced operations
-    pub fn handle(&self) -> &Device {
-        &self.0
+    /// Get the underlying wait handle for polling input events
+    pub fn wait_handle(&self) -> &WaitHandle {
+        &self.0.wait_handle
     }
 }
 
 pub struct Device {
-    handle: HANDLE,
-    event: HANDLE,
+    device_handle: DeviceHandle,
+    wait_handle: WaitHandle,
 }
 
 impl Device {
     fn new(index: usize) -> Result<Self, InterceptionError> {
         let path = format!("\\\\.\\interception{index:02}");
-        // Convert to UTF-16 for CreateFileW
-        let path_w: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
 
+        let device_handle = DeviceHandle::new(&path)?;
+        let wait_handle = WaitHandle::new()?;
+
+        device_handle.ioctl_in(IOCTL_SET_EVENT, &[wait_handle.0, ptr::null()])?;
+
+        Ok(Device {
+            device_handle,
+            wait_handle,
+        })
+    }
+
+    /// Set filter for this device
+    fn set_filter(&self, filter: Filter) -> Result<(), InterceptionError> {
+        self.device_handle.ioctl_in(IOCTL_SET_FILTER, &filter)?;
+        Ok(())
+    }
+
+    /// Get filter for this device
+    fn get_filter(&self) -> Result<Filter, InterceptionError> {
+        let mut filter: Filter = FILTER_NONE;
+        self.device_handle
+            .ioctl_out(IOCTL_GET_FILTER, &mut filter)?;
+        Ok(filter)
+    }
+
+    /// Set precedence for this device
+    fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
+        self.device_handle
+            .ioctl_in(IOCTL_SET_PRECEDENCE, &precedence)?;
+        Ok(())
+    }
+
+    /// Get precedence for this device
+    fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
+        let mut precedence: Precedence = 0;
+        self.device_handle
+            .ioctl_out(IOCTL_GET_PRECEDENCE, &mut precedence)?;
+        Ok(precedence)
+    }
+
+    /// Get hardware ID for this device
+    fn get_hardware_id(&self) -> Result<Vec<u8>, InterceptionError> {
+        // Try with a reasonable buffer size first
+        let mut buffer = vec![0u8; 512];
+
+        let output_size = self
+            .device_handle
+            .ioctl_out(IOCTL_GET_HARDWARE_ID, buffer.as_mut_slice())?;
+
+        buffer.truncate(output_size as usize);
+        Ok(buffer)
+    }
+
+    /// Generic function to send strokes to a device
+    fn send_strokes<T: Stroke>(&self, strokes: &[T]) -> Result<usize, InterceptionError> {
+        if strokes.is_empty() {
+            return Ok(0);
+        }
+
+        let strokes_written = self.device_handle.ioctl_in(IOCTL_WRITE, strokes)?;
+        Ok((strokes_written as usize) / size_of::<T>())
+    }
+
+    /// Generic function to receive strokes from a device
+    fn receive_strokes<T: Stroke>(&self, max_strokes: usize) -> Result<Vec<T>, InterceptionError> {
+        if max_strokes == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut raw_strokes: Vec<T> = vec![T::default(); max_strokes];
+
+        let strokes_read = self
+            .device_handle
+            .ioctl_out(IOCTL_READ, raw_strokes.as_mut_slice())?;
+
+        let strokes_count = (strokes_read as usize) / size_of::<T>();
+        raw_strokes.truncate(strokes_count);
+
+        Ok(raw_strokes)
+    }
+}
+
+/// Enum representing either a keyboard or mouse device for waiting operations
+/// Wait for input from any of the provided device handles
+///
+/// # Arguments
+/// * `device_handles` - Slice of device handles to wait for
+/// * `timeout_ms` - Timeout in milliseconds, or `INFINITE` for no timeout
+///
+/// # Returns
+/// * `Some(index)` - Index of the device that has input available
+/// * `None` - Timeout occurred or error
+pub fn wait_for_devices(handles: &[&WaitHandle], timeout_ms: u32) -> Option<usize> {
+    if handles.is_empty() {
+        return None;
+    }
+
+    let wait_handles: Vec<HANDLE> = handles.iter().map(|d| d.0).collect();
+
+    unsafe {
+        let result = WaitForMultipleObjects(
+            wait_handles.len() as u32,
+            wait_handles.as_ptr(),
+            FALSE, // Wait for any
+            timeout_ms,
+        );
+
+        match result {
+            WAIT_FAILED | WAIT_TIMEOUT => None,
+            index => {
+                let wait_index = (index - WAIT_OBJECT_0) as usize;
+                if wait_index < handles.len() {
+                    Some(wait_index)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
+/// Wait indefinitely for input from any of the provided device handles
+pub fn wait_for_input(device_handles: &[&WaitHandle]) -> Option<usize> {
+    wait_for_devices(device_handles, INFINITE)
+}
+
+struct DeviceHandle(HANDLE);
+
+impl DeviceHandle {
+    fn new(path: &str) -> Result<Self, InterceptionError> {
+        let path_w: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
         unsafe {
             let handle = CreateFileW(
                 path_w.as_ptr(),
@@ -492,203 +621,93 @@ impl Device {
                 return Err(InterceptionError::CreateFile(GetLastError()));
             }
 
-            let event = CreateEventW(
+            Ok(DeviceHandle(handle))
+        }
+    }
+
+    /// Performs a device I/O control operation with type-safe input and output parameters
+    fn ioctl<I: ?Sized, O: ?Sized>(
+        &self,
+        code: u32,
+        input: Option<&I>,
+        output: Option<&mut O>,
+    ) -> Result<u32, InterceptionError> {
+        let mut bytes_returned = 0;
+
+        let (input_ptr, input_size) = match input {
+            Some(data) => (data as *const I as *const c_void, size_of_val(data) as u32),
+            None => (ptr::null(), 0),
+        };
+
+        let (output_ptr, output_size) = match output {
+            Some(data) => (data as *mut O as *mut c_void, size_of_val(data) as u32),
+            None => (ptr::null_mut(), 0),
+        };
+
+        unsafe {
+            let result = DeviceIoControl(
+                self.0,
+                code,
+                input_ptr,
+                input_size,
+                output_ptr,
+                output_size,
+                &mut bytes_returned,
+                ptr::null_mut(),
+            );
+
+            if result == 0 {
+                return Err(InterceptionError::DeviceIoControl(GetLastError()));
+            }
+        }
+
+        Ok(bytes_returned)
+    }
+
+    fn ioctl_in<I: ?Sized>(&self, code: u32, input: &I) -> Result<u32, InterceptionError> {
+        self.ioctl(code, Some(input), None::<&mut ()>)
+    }
+
+    fn ioctl_out<O: ?Sized>(&self, code: u32, output: &mut O) -> Result<u32, InterceptionError> {
+        self.ioctl(code, None::<&()>, Some(output))
+    }
+}
+
+impl Drop for DeviceHandle {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self.0);
+        }
+    }
+}
+
+pub struct WaitHandle(HANDLE);
+
+impl WaitHandle {
+    fn new() -> Result<Self, InterceptionError> {
+        unsafe {
+            let handle = CreateEventW(
                 ptr::null(),
                 TRUE,  // Manual reset
                 FALSE, // Initially non-signaled
                 ptr::null(),
             );
 
-            if event.is_null() {
-                CloseHandle(handle);
+            if handle.is_null() {
                 return Err(InterceptionError::CreateEvent(GetLastError()));
             }
 
-            // Set the event handle for the device using original DeviceIoControl approach
-            let event_handles = [event, ptr::null()];
-
-            let result = ioctl_in(handle, IOCTL_SET_EVENT, &event_handles);
-
-            if let Err(e) = result {
-                CloseHandle(handle);
-                CloseHandle(event);
-                return Err(e);
-            }
-
-            Ok(Device { handle, event })
+            Ok(WaitHandle(handle))
         }
-    }
-
-    /// Set filter for this device
-    fn set_filter(&self, filter: Filter) -> Result<(), InterceptionError> {
-        ioctl_in(self.handle, IOCTL_SET_FILTER, &filter)?;
-        Ok(())
-    }
-
-    /// Get filter for this device
-    fn get_filter(&self) -> Result<Filter, InterceptionError> {
-        let mut filter: Filter = FILTER_NONE;
-        ioctl_out(self.handle, IOCTL_GET_FILTER, &mut filter)?;
-        Ok(filter)
-    }
-
-    /// Set precedence for this device
-    fn set_precedence(&self, precedence: Precedence) -> Result<(), InterceptionError> {
-        ioctl_in(self.handle, IOCTL_SET_PRECEDENCE, &precedence)?;
-        Ok(())
-    }
-
-    /// Get precedence for this device
-    fn get_precedence(&self) -> Result<Precedence, InterceptionError> {
-        let mut precedence: Precedence = 0;
-        ioctl_out(self.handle, IOCTL_GET_PRECEDENCE, &mut precedence)?;
-        Ok(precedence)
-    }
-
-    /// Get hardware ID for this device
-    fn get_hardware_id(&self) -> Result<Vec<u8>, InterceptionError> {
-        // Try with a reasonable buffer size first
-        let mut buffer = vec![0u8; 512];
-
-        let output_size = ioctl_out(self.handle, IOCTL_GET_HARDWARE_ID, buffer.as_mut_slice())?;
-
-        buffer.truncate(output_size as usize);
-        Ok(buffer)
-    }
-
-    /// Generic function to send strokes to a device
-    fn send_strokes<T: Stroke>(&self, strokes: &[T]) -> Result<usize, InterceptionError> {
-        if strokes.is_empty() {
-            return Ok(0);
-        }
-
-        let strokes_written = ioctl_in(self.handle, IOCTL_WRITE, strokes)?;
-        Ok((strokes_written as usize) / size_of::<T>())
-    }
-
-    /// Generic function to receive strokes from a device
-    fn receive_strokes<T: Stroke>(&self, max_strokes: usize) -> Result<Vec<T>, InterceptionError> {
-        if max_strokes == 0 {
-            return Ok(Vec::new());
-        }
-
-        let mut raw_strokes: Vec<T> = vec![T::default(); max_strokes];
-
-        let strokes_read = ioctl_out(self.handle, IOCTL_READ, raw_strokes.as_mut_slice())?;
-
-        let strokes_count = (strokes_read as usize) / size_of::<T>();
-        raw_strokes.truncate(strokes_count);
-
-        Ok(raw_strokes)
     }
 }
 
-impl Drop for Device {
+impl Drop for WaitHandle {
     fn drop(&mut self) {
         unsafe {
-            if self.handle != INVALID_HANDLE_VALUE {
-                CloseHandle(self.handle);
-            }
-            if !self.event.is_null() {
-                CloseHandle(self.event);
-            }
+            CloseHandle(self.0);
         }
     }
-}
-
-/// Enum representing either a keyboard or mouse device for waiting operations
-/// Wait for input from any of the provided device handles
-///
-/// # Arguments
-/// * `device_handles` - Slice of device handles to wait for
-/// * `timeout_ms` - Timeout in milliseconds, or `INFINITE` for no timeout
-///
-/// # Returns
-/// * `Some(index)` - Index of the device that has input available
-/// * `None` - Timeout occurred or error
-pub fn wait_for_devices(device_handles: &[&Device], timeout_ms: u32) -> Option<usize> {
-    if device_handles.is_empty() {
-        return None;
-    }
-
-    let wait_handles: Vec<HANDLE> = device_handles.iter().map(|d| d.event).collect();
-
-    unsafe {
-        let result = WaitForMultipleObjects(
-            wait_handles.len() as u32,
-            wait_handles.as_ptr(),
-            FALSE, // Wait for any
-            timeout_ms,
-        );
-
-        match result {
-            WAIT_FAILED | WAIT_TIMEOUT => None,
-            index => {
-                let wait_index = (index - WAIT_OBJECT_0) as usize;
-                if wait_index < device_handles.len() {
-                    Some(wait_index)
-                } else {
-                    None
-                }
-            }
-        }
-    }
-}
-
-/// Wait indefinitely for input from any of the provided device handles
-pub fn wait_for_any(device_handles: &[&Device]) -> Option<usize> {
-    wait_for_devices(device_handles, INFINITE)
-}
-
-/// Performs a device I/O control operation with type-safe input and output parameters
-fn ioctl<I: ?Sized, O: ?Sized>(
-    handle: HANDLE,
-    code: u32,
-    input: Option<&I>,
-    output: Option<&mut O>,
-) -> Result<u32, InterceptionError> {
-    let mut bytes_returned = 0;
-
-    let (input_ptr, input_size) = match input {
-        Some(data) => (data as *const I as *const c_void, size_of_val(data) as u32),
-        None => (ptr::null(), 0),
-    };
-
-    let (output_ptr, output_size) = match output {
-        Some(data) => (data as *mut O as *mut c_void, size_of_val(data) as u32),
-        None => (ptr::null_mut(), 0),
-    };
-
-    unsafe {
-        let result = DeviceIoControl(
-            handle,
-            code,
-            input_ptr,
-            input_size,
-            output_ptr,
-            output_size,
-            &mut bytes_returned,
-            ptr::null_mut(),
-        );
-
-        if result == 0 {
-            return Err(InterceptionError::DeviceIoControl(GetLastError()));
-        }
-    }
-
-    Ok(bytes_returned)
-}
-
-fn ioctl_in<I: ?Sized>(handle: HANDLE, code: u32, input: &I) -> Result<u32, InterceptionError> {
-    ioctl(handle, code, Some(input), None::<&mut ()>)
-}
-
-fn ioctl_out<O: ?Sized>(
-    handle: HANDLE,
-    code: u32,
-    output: &mut O,
-) -> Result<u32, InterceptionError> {
-    ioctl(handle, code, None::<&()>, Some(output))
 }
 
 // IOCTL codes from the original C implementation
