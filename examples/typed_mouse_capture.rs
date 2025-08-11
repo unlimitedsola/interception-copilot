@@ -3,9 +3,9 @@
 //! This example demonstrates how to use the new MouseDevice type
 //! to capture and send mouse events in a type-safe manner.
 
-use interception_copilot::{
-    FILTER_MOUSE_ALL, MOUSE_LEFT_BUTTON_DOWN, MOUSE_LEFT_BUTTON_UP, MOUSE_MOVE_RELATIVE,
-    MouseDevice, MouseStroke,
+use interception::{
+    MouseDevice, MouseStroke, FILTER_MOUSE_ALL, MOUSE_LEFT_BUTTON_DOWN,
+    MOUSE_LEFT_BUTTON_UP, MOUSE_MOVE_RELATIVE,
 };
 
 #[cfg(windows)]
