@@ -109,6 +109,13 @@ impl Interception {
         &mut self.devices
     }
 
+    pub fn set_precedence(&mut self, precedence: Precedence) -> Result<()> {
+        for device in &mut self.devices {
+            device.set_precedence(precedence)?;
+        }
+        Ok(())
+    }
+
     pub fn wait(&mut self, timeout: Option<Duration>) -> Result<&mut Device> {
         let index = wait(&self.wait_handles, timeout)?;
         Ok(&mut self.devices[index])
