@@ -6,6 +6,41 @@ Interception is a Rust port of the [Interception library](https://github.com/obl
 
 **ALWAYS reference these instructions first and fallback to search or bash commands only when you encounter unexpected information that does not match the info here.**
 
+## Maintaining and Improving These Instructions
+
+### Correcting Outdated Information
+
+**You are encouraged to correct any information in these instructions that is no longer accurate.** As the project evolves, dependencies may change, build processes may be updated, or new requirements may emerge. When you encounter information that doesn't match the current state of the project:
+
+- Update version numbers, dependency names, or build commands that have changed
+- Correct file paths, directory structures, or command syntax that no longer work
+- Fix any outdated references to tools, APIs, or external resources
+- Update timing estimates for builds, tests, or other operations if they no longer reflect reality
+
+### Adding Important Information for Future Development
+
+**When you discover important information that would be crucial for future work on this project, add it to these instructions.** This helps create a comprehensive knowledge base that benefits all future contributors:
+
+- **New dependencies or setup requirements** that you had to discover through trial and error
+- **Build gotchas or edge cases** that aren't immediately obvious but cause problems
+- **API changes or compatibility issues** discovered while working with the Windows APIs
+- **Performance considerations** or optimization techniques specific to this project
+- **Testing approaches** or validation methods that prove useful
+- **Cross-platform considerations** beyond the current Linux/Windows focus
+- **Security considerations** related to low-level hardware access
+
+### How to Update Instructions
+
+When updating these instructions:
+- Make changes directly to `.github/copilot-instructions.md`
+- Keep the existing structure and formatting consistent
+- Be specific and actionable in your additions
+- Include code examples or commands where helpful
+- Test any new build commands or procedures before adding them
+- Consider the impact on both new and experienced developers working on the project
+
+**Remember: These instructions are a living document that should evolve with the project.**
+
 ## Working Effectively
 
 ### Initial Setup - REQUIRED EVERY TIME
