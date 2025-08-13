@@ -51,25 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(hardware_id) => {
                 let device_type = if i < 10 { "keyboard" } else { "mouse" };
                 let device_index = if i < 10 { i } else { i - 10 };
-                // Convert bytes to UTF-16 string if possible, otherwise hex dump
-                let hardware_str = if hardware_id.len() >= 2 && hardware_id.len() % 2 == 0 {
-                    let u16_chars: Vec<u16> = hardware_id
-                        .chunks_exact(2)
-                        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-                        .collect();
-                    String::from_utf16_lossy(&u16_chars)
-                        .trim_end_matches('\0')
-                        .to_string()
-                } else {
-                    format!(
-                        "0x{}",
-                        hardware_id
-                            .iter()
-                            .map(|b| format!("{b:02x}"))
-                            .collect::<String>()
-                    )
-                };
-                println!("  Device {i} ({device_type} {device_index}): {hardware_str}");
+                println!("  Device {i} ({device_type} {device_index}): {hardware_id}");
             }
             Err(e) => {
                 let device_type = if i < 10 { "keyboard" } else { "mouse" };
