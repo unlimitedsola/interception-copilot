@@ -644,7 +644,7 @@ impl RawDevice {
 
     /// Get hardware ID for this device
     fn get_hardware_id(&mut self) -> Result<Vec<u8>> {
-        // Try with a reasonable buffer size first
+        // This should be large enough. `MAX_DEVICE_ID_LEN` is `200`.
         let mut buffer = vec![0u8; 512];
 
         let output_size = self
