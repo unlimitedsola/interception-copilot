@@ -5,7 +5,7 @@
 //!
 //! **Note**: This requires the Interception driver to be installed on Windows.
 
-use interception::{KeyboardDevice, FILTER_KEY_ALL};
+use interception::{FILTER_KEY_ALL, KeyboardDevice};
 
 #[cfg(windows)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {

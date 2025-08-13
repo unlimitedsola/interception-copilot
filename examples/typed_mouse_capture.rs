@@ -4,8 +4,8 @@
 //! to capture and send mouse events in a type-safe manner.
 
 use interception::{
-    MouseDevice, MouseStroke, FILTER_MOUSE_ALL, MOUSE_LEFT_BUTTON_DOWN,
-    MOUSE_LEFT_BUTTON_UP, MOUSE_MOVE_RELATIVE,
+    FILTER_MOUSE_ALL, MOUSE_LEFT_BUTTON_DOWN, MOUSE_LEFT_BUTTON_UP, MOUSE_MOVE_RELATIVE,
+    MouseDevice, MouseStroke,
 };
 
 #[cfg(windows)]
