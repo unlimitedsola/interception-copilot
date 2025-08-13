@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Created {} mouse device(s)", mice.len());
 
     // Set filter to capture all mouse events on each device
-    for mouse in &mice {
+    for mouse in &mut mice {
         mouse.set_filter(FILTER_MOUSE_ALL)?;
     }
 
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Main event loop
     loop {
         // Check each mouse device for input
-        for (device_index, mouse) in mice.iter().enumerate() {
+        for (device_index, mouse) in mice.iter_mut().enumerate() {
             // Try to receive mouse strokes from the device
             match mouse.receive(10) {
                 Ok(strokes) => {
@@ -76,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let click_up = MouseStroke::new(MOUSE_MOVE_RELATIVE, MOUSE_LEFT_BUTTON_UP, 0, 0, 0, 0);
 
             // Send to first mouse device
-            let first_mouse = &mice[0];
+            let first_mouse = &mut mice[0];
             if let Err(e) = first_mouse.send(&[click_down]) {
                 eprintln!("Error sending click down: {e}");
             } else {

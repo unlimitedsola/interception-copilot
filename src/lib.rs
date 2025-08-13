@@ -14,11 +14,11 @@
 //! use interception::{KeyboardDevice, MouseDevice, KeyStroke, MouseStroke, FILTER_KEY_ALL, FILTER_MOUSE_ALL};
 //!
 //! // Create type-safe keyboard device
-//! let keyboard = KeyboardDevice::new(0).expect("Failed to create keyboard device");
+//! let mut keyboard = KeyboardDevice::new(0).expect("Failed to create keyboard device");
 //! keyboard.set_filter(FILTER_KEY_ALL).expect("Failed to set keyboard filter");
 //!
 //! // Create type-safe mouse device
-//! let mouse = MouseDevice::new(0).expect("Failed to create mouse device");
+//! let mut mouse = MouseDevice::new(0).expect("Failed to create mouse device");
 //! mouse.set_filter(FILTER_MOUSE_ALL).expect("Failed to set mouse filter");
 //!
 //! // Create strokes using safe constructors
@@ -78,7 +78,7 @@ impl Interception {
         let mut wait_handles = Vec::new();
 
         for i in 0..MAX_DEVICES {
-            let device = Device::new(i)?;
+            let mut device = Device::new(i)?;
             let wait_handle = WaitHandle::new()?;
             unsafe {
                 device.set_wait_handle(&wait_handle)?;
@@ -413,7 +413,7 @@ impl Device {
     ///
     /// # Safety
     /// The caller must ensure that the wait handle outlives the device
-    pub unsafe fn set_wait_handle(&self, wait_handle: &WaitHandle) -> Result<()> {
+    pub unsafe fn set_wait_handle(&mut self, wait_handle: &WaitHandle) -> Result<()> {
         unsafe {
             match self {
                 Device::Keyboard(device) => device.set_wait_handle(wait_handle),
@@ -422,21 +422,21 @@ impl Device {
         }
     }
 
-    pub fn set_precedence(&self, precedence: Precedence) -> Result<()> {
+    pub fn set_precedence(&mut self, precedence: Precedence) -> Result<()> {
         match self {
             Device::Keyboard(device) => device.set_precedence(precedence),
             Device::Mouse(device) => device.set_precedence(precedence),
         }
     }
 
-    pub fn get_precedence(&self) -> Result<Precedence> {
+    pub fn get_precedence(&mut self) -> Result<Precedence> {
         match self {
             Device::Keyboard(device) => device.get_precedence(),
             Device::Mouse(device) => device.get_precedence(),
         }
     }
 
-    pub fn get_hardware_id(&self) -> Result<Vec<u8>> {
+    pub fn get_hardware_id(&mut self) -> Result<Vec<u8>> {
         match self {
             Device::Keyboard(device) => device.get_hardware_id(),
             Device::Mouse(device) => device.get_hardware_id(),
@@ -471,42 +471,42 @@ impl KeyboardDevice {
     ///
     /// # Safety
     /// The caller must ensure that the wait handle outlives the device
-    pub unsafe fn set_wait_handle(&self, wait_handle: &WaitHandle) -> Result<()> {
+    pub unsafe fn set_wait_handle(&mut self, wait_handle: &WaitHandle) -> Result<()> {
         unsafe { self.0.set_wait_handle(wait_handle) }
     }
 
     /// Set filter for this keyboard device
-    pub fn set_filter(&self, filter: KeyFilter) -> Result<()> {
+    pub fn set_filter(&mut self, filter: KeyFilter) -> Result<()> {
         self.0.set_filter(filter)
     }
 
     /// Get filter for this keyboard device
-    pub fn get_filter(&self) -> Result<KeyFilter> {
+    pub fn get_filter(&mut self) -> Result<KeyFilter> {
         self.0.get_filter()
     }
 
     /// Set precedence for this keyboard device
-    pub fn set_precedence(&self, precedence: Precedence) -> Result<()> {
+    pub fn set_precedence(&mut self, precedence: Precedence) -> Result<()> {
         self.0.set_precedence(precedence)
     }
 
     /// Get precedence for this keyboard device
-    pub fn get_precedence(&self) -> Result<Precedence> {
+    pub fn get_precedence(&mut self) -> Result<Precedence> {
         self.0.get_precedence()
     }
 
     /// Send keyboard strokes to this device
-    pub fn send(&self, strokes: &[KeyStroke]) -> Result<usize> {
+    pub fn send(&mut self, strokes: &[KeyStroke]) -> Result<usize> {
         self.0.send_strokes(strokes)
     }
 
     /// Receive keyboard strokes from this device
-    pub fn receive(&self, max_strokes: usize) -> Result<Vec<KeyStroke>> {
+    pub fn receive(&mut self, max_strokes: usize) -> Result<Vec<KeyStroke>> {
         self.0.receive_strokes(max_strokes)
     }
 
     /// Get hardware ID for this keyboard device
-    pub fn get_hardware_id(&self) -> Result<Vec<u8>> {
+    pub fn get_hardware_id(&mut self) -> Result<Vec<u8>> {
         self.0.get_hardware_id()
     }
 }
@@ -539,42 +539,42 @@ impl MouseDevice {
     ///
     /// # Safety
     /// The caller must ensure that the wait handle outlives the device
-    pub unsafe fn set_wait_handle(&self, wait_handle: &WaitHandle) -> Result<()> {
+    pub unsafe fn set_wait_handle(&mut self, wait_handle: &WaitHandle) -> Result<()> {
         unsafe { self.0.set_wait_handle(wait_handle) }
     }
 
     /// Set filter for this mouse device
-    pub fn set_filter(&self, filter: MouseFilter) -> Result<()> {
+    pub fn set_filter(&mut self, filter: MouseFilter) -> Result<()> {
         self.0.set_filter(filter)
     }
 
     /// Get filter for this mouse device
-    pub fn get_filter(&self) -> Result<MouseFilter> {
+    pub fn get_filter(&mut self) -> Result<MouseFilter> {
         self.0.get_filter()
     }
 
     /// Set precedence for this mouse device
-    pub fn set_precedence(&self, precedence: Precedence) -> Result<()> {
+    pub fn set_precedence(&mut self, precedence: Precedence) -> Result<()> {
         self.0.set_precedence(precedence)
     }
 
     /// Get precedence for this mouse device
-    pub fn get_precedence(&self) -> Result<Precedence> {
+    pub fn get_precedence(&mut self) -> Result<Precedence> {
         self.0.get_precedence()
     }
 
     /// Send mouse strokes to this device
-    pub fn send(&self, strokes: &[MouseStroke]) -> Result<usize> {
+    pub fn send(&mut self, strokes: &[MouseStroke]) -> Result<usize> {
         self.0.send_strokes(strokes)
     }
 
     /// Receive mouse strokes from this device
-    pub fn receive(&self, max_strokes: usize) -> Result<Vec<MouseStroke>> {
+    pub fn receive(&mut self, max_strokes: usize) -> Result<Vec<MouseStroke>> {
         self.0.receive_strokes(max_strokes)
     }
 
     /// Get hardware ID for this mouse device
-    pub fn get_hardware_id(&self) -> Result<Vec<u8>> {
+    pub fn get_hardware_id(&mut self) -> Result<Vec<u8>> {
         self.0.get_hardware_id()
     }
 }
@@ -597,40 +597,40 @@ impl RawDevice {
     ///
     /// # Safety
     /// The caller must ensure that the wait handle outlives the device
-    unsafe fn set_wait_handle(&self, wait_handle: &WaitHandle) -> Result<()> {
+    unsafe fn set_wait_handle(&mut self, wait_handle: &WaitHandle) -> Result<()> {
         self.0
             .ioctl_in(IOCTL_SET_EVENT, &[wait_handle.0, ptr::null()])?;
         Ok(())
     }
 
     /// Set filter for this device
-    fn set_filter(&self, filter: Filter) -> Result<()> {
+    fn set_filter(&mut self, filter: Filter) -> Result<()> {
         self.0.ioctl_in(IOCTL_SET_FILTER, &filter)?;
         Ok(())
     }
 
     /// Get filter for this device
-    fn get_filter(&self) -> Result<Filter> {
+    fn get_filter(&mut self) -> Result<Filter> {
         let mut filter: Filter = FILTER_NONE;
         self.0.ioctl_out(IOCTL_GET_FILTER, &mut filter)?;
         Ok(filter)
     }
 
     /// Set precedence for this device
-    fn set_precedence(&self, precedence: Precedence) -> Result<()> {
+    fn set_precedence(&mut self, precedence: Precedence) -> Result<()> {
         self.0.ioctl_in(IOCTL_SET_PRECEDENCE, &precedence)?;
         Ok(())
     }
 
     /// Get precedence for this device
-    fn get_precedence(&self) -> Result<Precedence> {
+    fn get_precedence(&mut self) -> Result<Precedence> {
         let mut precedence: Precedence = 0;
         self.0.ioctl_out(IOCTL_GET_PRECEDENCE, &mut precedence)?;
         Ok(precedence)
     }
 
     /// Get hardware ID for this device
-    fn get_hardware_id(&self) -> Result<Vec<u8>> {
+    fn get_hardware_id(&mut self) -> Result<Vec<u8>> {
         // Try with a reasonable buffer size first
         let mut buffer = vec![0u8; 512];
 
@@ -643,7 +643,7 @@ impl RawDevice {
     }
 
     /// Generic function to send strokes to a device
-    fn send_strokes<T: Stroke>(&self, strokes: &[T]) -> Result<usize> {
+    fn send_strokes<T: Stroke>(&mut self, strokes: &[T]) -> Result<usize> {
         if strokes.is_empty() {
             return Ok(0);
         }
@@ -653,7 +653,7 @@ impl RawDevice {
     }
 
     /// Generic function to receive strokes from a device
-    fn receive_strokes<T: Stroke>(&self, max_strokes: usize) -> Result<Vec<T>> {
+    fn receive_strokes<T: Stroke>(&mut self, max_strokes: usize) -> Result<Vec<T>> {
         if max_strokes == 0 {
             return Ok(Vec::new());
         }
@@ -696,7 +696,7 @@ impl RawDeviceHandle {
 
     /// Performs a device I/O control operation with type-safe input and output parameters
     fn ioctl<I: ?Sized, O: ?Sized>(
-        &self,
+        &mut self,
         code: u32,
         input: Option<&I>,
         output: Option<&mut O>,
@@ -733,11 +733,11 @@ impl RawDeviceHandle {
         Ok(bytes_returned)
     }
 
-    fn ioctl_in<I: ?Sized>(&self, code: u32, input: &I) -> Result<u32> {
+    fn ioctl_in<I: ?Sized>(&mut self, code: u32, input: &I) -> Result<u32> {
         self.ioctl(code, Some(input), None::<&mut ()>)
     }
 
-    fn ioctl_out<O: ?Sized>(&self, code: u32, output: &mut O) -> Result<u32> {
+    fn ioctl_out<O: ?Sized>(&mut self, code: u32, output: &mut O) -> Result<u32> {
         self.ioctl(code, None::<&()>, Some(output))
     }
 }
