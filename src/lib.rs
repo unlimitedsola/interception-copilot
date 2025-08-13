@@ -13,7 +13,7 @@
 //! ```rust,no_run
 //! use interception::{KeyboardDevice, MouseDevice, KeyStroke, MouseStroke, FILTER_KEY_ALL, FILTER_MOUSE_ALL};
 //!
-//! // Create type-safe keyboard device  
+//! // Create type-safe keyboard device
 //! let keyboard = KeyboardDevice::new(0).expect("Failed to create keyboard device");
 //! keyboard.set_filter(FILTER_KEY_ALL).expect("Failed to set keyboard filter");
 //!
@@ -50,9 +50,10 @@
 
 use std::error::Error;
 use std::ffi::{c_int, c_long, c_short, c_uint, c_ulong, c_ushort, c_void};
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 use std::mem;
 use std::ptr;
+use std::time::Duration;
 use windows_sys::Win32::{
     Foundation::{
         CloseHandle, GetLastError, FALSE, GENERIC_READ, HANDLE, INVALID_HANDLE_VALUE, TRUE,
@@ -66,9 +67,53 @@ use windows_sys::Win32::{
     },
 };
 
+pub struct Interception {
+    devices: [Device; MAX_DEVICES],
+    wait_handles: [WaitHandle; MAX_DEVICES],
+}
+
+impl Interception {
+    pub fn new() -> Result<Self> {
+        let mut devices = Vec::new();
+        let mut wait_handles = Vec::new();
+
+        for i in 0..MAX_DEVICES {
+            let device = Device::new(i)?;
+            let wait_handle = WaitHandle::new()?;
+            unsafe {
+                device.set_wait_handle(&wait_handle)?;
+            }
+            devices.push(device);
+            wait_handles.push(wait_handle);
+        }
+        let devices = devices
+            .try_into()
+            .expect("device array should have exactly MAX_DEVICES elements");
+        let wait_handles = wait_handles
+            .try_into()
+            .expect("wait handle array should have exactly MAX_DEVICES elements");
+
+        Ok(Interception {
+            devices,
+            wait_handles,
+        })
+    }
+
+    pub fn devices(&self) -> &[Device; MAX_DEVICES] {
+        &self.devices
+    }
+
+    pub fn wait(&self, timeout: Option<Duration>) -> Result<&Device> {
+        let index = wait(&self.wait_handles, timeout)?;
+        Ok(&self.devices[index])
+    }
+}
+
 // Constants from the original C header
-const INTERCEPTION_MAX_KEYBOARD: usize = 10;
-const INTERCEPTION_MAX_MOUSE: usize = 10;
+const MAX_KEYBOARD: usize = 10;
+const MAX_MOUSE: usize = 10;
+
+const MAX_DEVICES: usize = MAX_KEYBOARD + MAX_MOUSE;
 
 /// Precedence value for device handling order
 pub type Precedence = c_int;
@@ -343,8 +388,65 @@ trait Stroke: Default + Clone + Sized {
 impl Stroke for KeyStroke {}
 impl Stroke for MouseStroke {}
 
+#[derive(Debug)]
+pub enum Device {
+    /// Keyboard device
+    Keyboard(KeyboardDevice),
+    /// Mouse device
+    Mouse(MouseDevice),
+}
+
+impl Device {
+    pub fn new(index: usize) -> Result<Self> {
+        if index < MAX_KEYBOARD {
+            KeyboardDevice::new(index).map(Device::Keyboard)
+        } else if index < MAX_DEVICES {
+            MouseDevice::new(index - MAX_KEYBOARD).map(Device::Mouse)
+        } else {
+            Err(InterceptionError::InvalidDevice)
+        }
+    }
+
+    /// Set a wait handle for this device.
+    ///
+    /// Wait handle is used to signal when input is available
+    ///
+    /// # Safety
+    /// The caller must ensure that the wait handle outlives the device
+    pub unsafe fn set_wait_handle(&self, wait_handle: &WaitHandle) -> Result<()> {
+        unsafe {
+            match self {
+                Device::Keyboard(device) => device.set_wait_handle(wait_handle),
+                Device::Mouse(device) => device.set_wait_handle(wait_handle),
+            }
+        }
+    }
+
+    pub fn set_precedence(&self, precedence: Precedence) -> Result<()> {
+        match self {
+            Device::Keyboard(device) => device.set_precedence(precedence),
+            Device::Mouse(device) => device.set_precedence(precedence),
+        }
+    }
+
+    pub fn get_precedence(&self) -> Result<Precedence> {
+        match self {
+            Device::Keyboard(device) => device.get_precedence(),
+            Device::Mouse(device) => device.get_precedence(),
+        }
+    }
+
+    pub fn get_hardware_id(&self) -> Result<Vec<u8>> {
+        match self {
+            Device::Keyboard(device) => device.get_hardware_id(),
+            Device::Mouse(device) => device.get_hardware_id(),
+        }
+    }
+}
+
 /// A keyboard input device for intercepting and injecting keyboard events
-pub struct KeyboardDevice(Device);
+#[derive(Debug)]
+pub struct KeyboardDevice(RawDevice);
 
 impl KeyboardDevice {
     /// Create a new keyboard device
@@ -355,12 +457,22 @@ impl KeyboardDevice {
     /// # Errors
     /// Returns an error if the device cannot be created or if index is out of range
     pub fn new(index: usize) -> Result<Self> {
-        if index >= INTERCEPTION_MAX_KEYBOARD {
+        if index >= MAX_KEYBOARD {
             return Err(InterceptionError::InvalidDevice);
         }
 
-        let handle = Device::new(index)?;
+        let handle = RawDevice::new(index)?;
         Ok(KeyboardDevice(handle))
+    }
+
+    /// Set a wait handle for this device.
+    ///
+    /// Wait handle is used to signal when input is available
+    ///
+    /// # Safety
+    /// The caller must ensure that the wait handle outlives the device
+    pub unsafe fn set_wait_handle(&self, wait_handle: &WaitHandle) -> Result<()> {
+        unsafe { self.0.set_wait_handle(wait_handle) }
     }
 
     /// Set filter for this keyboard device
@@ -397,15 +509,11 @@ impl KeyboardDevice {
     pub fn get_hardware_id(&self) -> Result<Vec<u8>> {
         self.0.get_hardware_id()
     }
-
-    /// Get the underlying wait handle for polling input events
-    pub fn wait_handle(&self) -> &WaitHandle {
-        &self.0.wait_handle
-    }
 }
 
 /// A mouse input device for intercepting and injecting mouse events
-pub struct MouseDevice(Device);
+#[derive(Debug)]
+pub struct MouseDevice(RawDevice);
 
 impl MouseDevice {
     /// Create a new mouse device
@@ -416,13 +524,23 @@ impl MouseDevice {
     /// # Errors
     /// Returns an error if the device cannot be created or if index is out of range
     pub fn new(index: usize) -> Result<Self> {
-        if index >= INTERCEPTION_MAX_MOUSE {
+        if index >= MAX_MOUSE {
             return Err(InterceptionError::InvalidDevice);
         }
 
-        let device_index = INTERCEPTION_MAX_KEYBOARD + index;
-        let handle = Device::new(device_index)?;
+        let device_index = MAX_KEYBOARD + index;
+        let handle = RawDevice::new(device_index)?;
         Ok(MouseDevice(handle))
+    }
+
+    /// Set a wait handle for this device.
+    ///
+    /// Wait handle is used to signal when input is available
+    ///
+    /// # Safety
+    /// The caller must ensure that the wait handle outlives the device
+    pub unsafe fn set_wait_handle(&self, wait_handle: &WaitHandle) -> Result<()> {
+        unsafe { self.0.set_wait_handle(wait_handle) }
     }
 
     /// Set filter for this mouse device
@@ -459,59 +577,55 @@ impl MouseDevice {
     pub fn get_hardware_id(&self) -> Result<Vec<u8>> {
         self.0.get_hardware_id()
     }
-
-    /// Get the underlying wait handle for polling input events
-    pub fn wait_handle(&self) -> &WaitHandle {
-        &self.0.wait_handle
-    }
 }
 
-pub struct Device {
-    device_handle: DeviceHandle,
-    wait_handle: WaitHandle,
-}
+#[derive(Debug)]
+pub struct RawDevice(RawDeviceHandle);
 
-impl Device {
+impl RawDevice {
     fn new(index: usize) -> Result<Self> {
         let path = format!("\\\\.\\interception{index:02}");
 
-        let device_handle = DeviceHandle::new(&path)?;
-        let wait_handle = WaitHandle::new()?;
+        let handle = RawDeviceHandle::new(&path)?;
 
-        device_handle.ioctl_in(IOCTL_SET_EVENT, &[wait_handle.0, ptr::null()])?;
+        Ok(RawDevice(handle))
+    }
 
-        Ok(Device {
-            device_handle,
-            wait_handle,
-        })
+    /// Set a wait handle for this device.
+    ///
+    /// Wait handle is used to signal when input is available
+    ///
+    /// # Safety
+    /// The caller must ensure that the wait handle outlives the device
+    unsafe fn set_wait_handle(&self, wait_handle: &WaitHandle) -> Result<()> {
+        self.0
+            .ioctl_in(IOCTL_SET_EVENT, &[wait_handle.0, ptr::null()])?;
+        Ok(())
     }
 
     /// Set filter for this device
     fn set_filter(&self, filter: Filter) -> Result<()> {
-        self.device_handle.ioctl_in(IOCTL_SET_FILTER, &filter)?;
+        self.0.ioctl_in(IOCTL_SET_FILTER, &filter)?;
         Ok(())
     }
 
     /// Get filter for this device
     fn get_filter(&self) -> Result<Filter> {
         let mut filter: Filter = FILTER_NONE;
-        self.device_handle
-            .ioctl_out(IOCTL_GET_FILTER, &mut filter)?;
+        self.0.ioctl_out(IOCTL_GET_FILTER, &mut filter)?;
         Ok(filter)
     }
 
     /// Set precedence for this device
     fn set_precedence(&self, precedence: Precedence) -> Result<()> {
-        self.device_handle
-            .ioctl_in(IOCTL_SET_PRECEDENCE, &precedence)?;
+        self.0.ioctl_in(IOCTL_SET_PRECEDENCE, &precedence)?;
         Ok(())
     }
 
     /// Get precedence for this device
     fn get_precedence(&self) -> Result<Precedence> {
         let mut precedence: Precedence = 0;
-        self.device_handle
-            .ioctl_out(IOCTL_GET_PRECEDENCE, &mut precedence)?;
+        self.0.ioctl_out(IOCTL_GET_PRECEDENCE, &mut precedence)?;
         Ok(precedence)
     }
 
@@ -521,7 +635,7 @@ impl Device {
         let mut buffer = vec![0u8; 512];
 
         let output_size = self
-            .device_handle
+            .0
             .ioctl_out(IOCTL_GET_HARDWARE_ID, buffer.as_mut_slice())?;
 
         buffer.truncate(output_size as usize);
@@ -534,7 +648,7 @@ impl Device {
             return Ok(0);
         }
 
-        let strokes_written = self.device_handle.ioctl_in(IOCTL_WRITE, strokes)?;
+        let strokes_written = self.0.ioctl_in(IOCTL_WRITE, strokes)?;
         Ok((strokes_written as usize) / size_of::<T>())
     }
 
@@ -546,9 +660,7 @@ impl Device {
 
         let mut raw_strokes: Vec<T> = vec![T::default(); max_strokes];
 
-        let strokes_read = self
-            .device_handle
-            .ioctl_out(IOCTL_READ, raw_strokes.as_mut_slice())?;
+        let strokes_read = self.0.ioctl_out(IOCTL_READ, raw_strokes.as_mut_slice())?;
 
         let strokes_count = (strokes_read as usize) / size_of::<T>();
         raw_strokes.truncate(strokes_count);
@@ -557,53 +669,10 @@ impl Device {
     }
 }
 
-/// Enum representing either a keyboard or mouse device for waiting operations
-/// Wait for input from any of the provided device handles
-///
-/// # Arguments
-/// * `device_handles` - Slice of device handles to wait for
-/// * `timeout_ms` - Timeout in milliseconds, or `INFINITE` for no timeout
-///
-/// # Returns
-/// * `Some(index)` - Index of the device that has input available
-/// * `None` - Timeout occurred or error
-pub fn wait_for_devices(handles: &[&WaitHandle], timeout_ms: u32) -> Option<usize> {
-    if handles.is_empty() {
-        return None;
-    }
+#[derive(Debug)]
+struct RawDeviceHandle(HANDLE);
 
-    let wait_handles: Vec<HANDLE> = handles.iter().map(|d| d.0).collect();
-
-    unsafe {
-        let result = WaitForMultipleObjects(
-            wait_handles.len() as u32,
-            wait_handles.as_ptr(),
-            FALSE, // Wait for any
-            timeout_ms,
-        );
-
-        match result {
-            WAIT_FAILED | WAIT_TIMEOUT => None,
-            index => {
-                let wait_index = (index - WAIT_OBJECT_0) as usize;
-                if wait_index < handles.len() {
-                    Some(wait_index)
-                } else {
-                    None
-                }
-            }
-        }
-    }
-}
-
-/// Wait indefinitely for input from any of the provided device handles
-pub fn wait_for_input(device_handles: &[&WaitHandle]) -> Option<usize> {
-    wait_for_devices(device_handles, INFINITE)
-}
-
-struct DeviceHandle(HANDLE);
-
-impl DeviceHandle {
+impl RawDeviceHandle {
     fn new(path: &str) -> Result<Self> {
         let path_w: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
         unsafe {
@@ -621,7 +690,7 @@ impl DeviceHandle {
                 return Err(InterceptionError::CreateFile(GetLastError()));
             }
 
-            Ok(DeviceHandle(handle))
+            Ok(RawDeviceHandle(handle))
         }
     }
 
@@ -673,7 +742,27 @@ impl DeviceHandle {
     }
 }
 
-impl Drop for DeviceHandle {
+// IOCTL codes from the original C implementation
+const IOCTL_SET_PRECEDENCE: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_GET_PRECEDENCE: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_SET_FILTER: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x804, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_GET_FILTER: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x808, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_SET_EVENT: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x810, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_WRITE: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x820, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_READ: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x840, METHOD_BUFFERED, FILE_ANY_ACCESS);
+const IOCTL_GET_HARDWARE_ID: u32 =
+    ctl_code(FILE_DEVICE_UNKNOWN, 0x880, METHOD_BUFFERED, FILE_ANY_ACCESS);
+
+/// `CTL_CODE` macro in `winioctl.h`
+const fn ctl_code(device_type: u32, function: u32, method: u32, access: u32) -> u32 {
+    (device_type << 16) | (access << 14) | (function << 2) | method
+}
+
+impl Drop for RawDeviceHandle {
     fn drop(&mut self) {
         unsafe {
             CloseHandle(self.0);
@@ -681,6 +770,8 @@ impl Drop for DeviceHandle {
     }
 }
 
+#[derive(Debug)]
+#[repr(transparent)]
 pub struct WaitHandle(HANDLE);
 
 impl WaitHandle {
@@ -710,24 +801,64 @@ impl Drop for WaitHandle {
     }
 }
 
-// IOCTL codes from the original C implementation
-const IOCTL_SET_PRECEDENCE: u32 =
-    ctl_code(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_GET_PRECEDENCE: u32 =
-    ctl_code(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_SET_FILTER: u32 =
-    ctl_code(FILE_DEVICE_UNKNOWN, 0x804, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_GET_FILTER: u32 =
-    ctl_code(FILE_DEVICE_UNKNOWN, 0x808, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_SET_EVENT: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x810, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_WRITE: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x820, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_READ: u32 = ctl_code(FILE_DEVICE_UNKNOWN, 0x840, METHOD_BUFFERED, FILE_ANY_ACCESS);
-const IOCTL_GET_HARDWARE_ID: u32 =
-    ctl_code(FILE_DEVICE_UNKNOWN, 0x880, METHOD_BUFFERED, FILE_ANY_ACCESS);
+/// Waits for any of the provided handles to be signaled.
+/// Returns the index of the signaled handle or an error if none were signaled within the timeout.
+pub fn wait(handles: &[WaitHandle], timeout: Option<Duration>) -> Result<usize, WaitError> {
+    if handles.is_empty() {
+        return Err(WaitError::EmptyHandles);
+    }
 
-/// `CTL_CODE` macro in `winioctl.h`
-const fn ctl_code(device_type: u32, function: u32, method: u32, access: u32) -> u32 {
-    (device_type << 16) | (access << 14) | (function << 2) | method
+    let len = handles.len() as u32;
+
+    unsafe {
+        let result = WaitForMultipleObjects(
+            len,
+            // SAFETY: `WaitHandle` is `repr(transparent)` over `HANDLE`, thus safe
+            handles.as_ptr() as *const HANDLE,
+            FALSE, // Wait for any
+            timeout.map_or(INFINITE, |d| d.as_millis() as u32),
+        );
+
+        match result {
+            WAIT_FAILED => Err(WaitError::WaitFailed(GetLastError())),
+            WAIT_TIMEOUT => Err(WaitError::WaitTimeout),
+            index => {
+                let index = index - WAIT_OBJECT_0;
+                if index < len {
+                    Ok(index as usize)
+                } else {
+                    Err(WaitError::OutOfBounds(index))
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum WaitError {
+    EmptyHandles,
+    WaitFailed(u32),
+    WaitTimeout,
+    OutOfBounds(u32),
+}
+
+impl Display for WaitError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyHandles => write!(f, "No wait handles provided"),
+            Self::WaitFailed(code) => write!(f, "Wait operation failed, error code: {code}"),
+            Self::WaitTimeout => write!(f, "Wait operation timed out"),
+            Self::OutOfBounds(index) => write!(f, "Wait index out of bounds: {index}"),
+        }
+    }
+}
+
+impl Error for WaitError {}
+
+impl From<WaitError> for InterceptionError {
+    fn from(value: WaitError) -> Self {
+        InterceptionError::Wait(value)
+    }
 }
 
 type Result<T, E = InterceptionError> = std::result::Result<T, E>;
@@ -743,26 +874,20 @@ pub enum InterceptionError {
     DeviceIoControl(u32),
     /// Invalid device ID
     InvalidDevice,
-    /// Wait operation failed or timed out
-    WaitFailed(u32),
+    /// Wait operation failed
+    Wait(WaitError),
 }
 
 impl Display for InterceptionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            InterceptionError::CreateFile(code) => {
-                write!(f, "Failed to create device file, error code: {code}")
-            }
-            InterceptionError::CreateEvent(code) => {
-                write!(f, "Failed to create event, error code: {code}")
-            }
-            InterceptionError::DeviceIoControl(code) => {
+            Self::CreateFile(code) => write!(f, "Failed to create device file, error code: {code}"),
+            Self::CreateEvent(code) => write!(f, "Failed to create event, error code: {code}"),
+            Self::DeviceIoControl(code) => {
                 write!(f, "Device I/O control failed, error code: {code}")
             }
-            InterceptionError::InvalidDevice => write!(f, "Invalid device ID"),
-            InterceptionError::WaitFailed(code) => {
-                write!(f, "Wait operation failed or timed out, error code: {code}")
-            }
+            Self::InvalidDevice => write!(f, "Invalid device ID"),
+            Self::Wait(e) => write!(f, "Wait operation failed: {}", e),
         }
     }
 }
@@ -776,7 +901,7 @@ mod tests {
     #[test]
     fn test_typed_device_bounds_checking() {
         // Test keyboard device creation bounds
-        for i in 0..INTERCEPTION_MAX_KEYBOARD {
+        for i in 0..MAX_KEYBOARD {
             // We can't actually create devices without the driver, but we can test the bounds checking
             match KeyboardDevice::new(i) {
                 Ok(_) => {}                                 // Device creation succeeded
@@ -787,12 +912,12 @@ mod tests {
 
         // Test out-of-bounds keyboard device
         assert!(matches!(
-            KeyboardDevice::new(INTERCEPTION_MAX_KEYBOARD),
+            KeyboardDevice::new(MAX_KEYBOARD),
             Err(InterceptionError::InvalidDevice)
         ));
 
         // Test mouse device creation bounds
-        for i in 0..INTERCEPTION_MAX_MOUSE {
+        for i in 0..MAX_MOUSE {
             match MouseDevice::new(i) {
                 Ok(_) => {}                                 // Device creation succeeded
                 Err(InterceptionError::CreateFile(_)) => {} // Expected without driver
@@ -802,7 +927,7 @@ mod tests {
 
         // Test out-of-bounds mouse device
         assert!(matches!(
-            MouseDevice::new(INTERCEPTION_MAX_MOUSE),
+            MouseDevice::new(MAX_MOUSE),
             Err(InterceptionError::InvalidDevice)
         ));
     }
