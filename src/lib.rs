@@ -49,10 +49,10 @@
 #![cfg(windows)]
 
 use std::error::Error;
-use std::ffi::{OsString, c_int, c_long, c_short, c_uint, c_ulong, c_ushort, c_void};
+use std::ffi::{c_int, c_long, c_short, c_uint, c_ulong, c_ushort, c_void};
 use std::fmt::{Display, Formatter};
 use std::mem;
-use std::os::windows::ffi::OsStringExt;
+
 use std::ptr;
 use std::time::Duration;
 use windows_sys::Win32::{
