@@ -37,6 +37,41 @@
 //! mouse.send(&mouse_strokes).expect("Failed to send mouse strokes");
 //! ```
 //!
+//! ## Precedence and Event Processing Order
+//!
+//! The Interception library supports **precedence** to control the order in which multiple
+//! applications process input events. This is essential when multiple input hooking applications
+//! run simultaneously on the same system.
+//!
+//! ### Key Concepts:
+//!
+//! - **Higher precedence** = **Earlier processing** in the event chain
+//! - **Lower precedence** = **Later processing** in the event chain
+//! - Applications with higher precedence can block, modify, or consume events
+//! - Default precedence is typically 0
+//!
+//! ### Setting Precedence:
+//!
+//! ```rust,no_run
+//! use interception::{Interception, KeyboardDevice};
+//!
+//! // Set precedence for entire context (all devices)
+//! let mut context = Interception::new()?;
+//! context.set_precedence(75)?; // High priority
+//!
+//! // Or set precedence for individual devices
+//! let mut keyboard = KeyboardDevice::new(0)?;
+//! keyboard.set_precedence(50)?; // Medium priority
+//! # Ok::<(), interception::InterceptionError>(())
+//! ```
+//!
+//! ### Common Precedence Patterns:
+//!
+//! - **System-wide key remappers**: High precedence (80-100)
+//! - **Application-specific hooks**: Medium precedence (30-70)
+//! - **Logging and monitoring**: Low precedence (1-20)
+//! - **Passthrough applications**: Very low or default precedence (0)
+//!
 //! ## Consolidated Structs
 //!
 //! The library uses consolidated structs that directly match the Windows API C-ABI:
@@ -49,10 +84,9 @@
 #![cfg(windows)]
 
 use std::error::Error;
-use std::ffi::{OsString, c_int, c_long, c_short, c_uint, c_ulong, c_ushort, c_void};
+use std::ffi::{c_int, c_long, c_short, c_uint, c_ulong, c_ushort, c_void};
 use std::fmt::{Display, Formatter};
 use std::mem;
-use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::time::Duration;
 use windows_sys::Win32::{
@@ -110,6 +144,42 @@ impl Interception {
         &mut self.devices
     }
 
+    /// Set precedence for all devices in this context
+    ///
+    /// This method sets the same precedence value for all keyboard and mouse devices
+    /// managed by this Interception context. This is useful when you want your entire
+    /// application to have a consistent priority level relative to other input hooking
+    /// applications.
+    ///
+    /// # Arguments
+    ///
+    /// * `precedence` - The precedence value to set. Higher values mean higher priority.
+    ///   Typical range is 0-100, but can be any `i32` value.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use interception::Interception;
+    ///
+    /// let mut context = Interception::new()?;
+    ///
+    /// // Set high precedence to process events before most other applications
+    /// context.set_precedence(75)?;
+    ///
+    /// // Set low precedence to process events after other applications
+    /// context.set_precedence(10)?;
+    /// # Ok::<(), interception::InterceptionError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the precedence could not be set for any device, typically
+    /// due to driver communication issues or insufficient permissions.
+    ///
+    /// # See Also
+    ///
+    /// - [`Device::set_precedence`] for setting precedence on individual devices
+    /// - [`Precedence`] type documentation for detailed precedence concepts
     pub fn set_precedence(&mut self, precedence: Precedence) -> Result<()> {
         for device in &mut self.devices {
             device.set_precedence(precedence)?;
@@ -130,6 +200,54 @@ const MAX_MOUSE: usize = 10;
 const MAX_DEVICES: usize = MAX_KEYBOARD + MAX_MOUSE;
 
 /// Precedence value for device handling order
+///
+/// Precedence determines the order in which multiple applications process input events
+/// when using the Interception library. This is critical when multiple input hooking
+/// applications are running simultaneously on the same system.
+///
+/// ## How Precedence Works
+///
+/// - **Higher precedence values** = **Earlier processing** in the event chain
+/// - **Lower precedence values** = **Later processing** in the event chain  
+/// - Applications with higher precedence can potentially block, modify, or consume
+///   events before lower precedence applications see them
+/// - Default precedence is typically 0
+/// - Valid range is typically from `i32::MIN` to `i32::MAX`
+///
+/// ## When to Set Precedence
+///
+/// Set precedence when you need to:
+/// - Ensure your application processes events before other input hooks
+/// - Create a layered input processing system with multiple applications
+/// - Override or block input from reaching lower-precedence applications
+/// - Implement system-wide input transformations that should apply first
+///
+/// ## Usage Examples
+///
+/// ```rust,no_run
+/// use interception::{Interception, FILTER_KEY_ALL};
+///
+/// let mut context = Interception::new().expect("Failed to create context");
+///
+/// // Set high precedence to process events before other applications
+/// context.set_precedence(100).expect("Failed to set precedence");
+///
+/// // Or set precedence on individual devices
+/// let devices = context.devices_mut();
+/// devices[0].set_precedence(50).expect("Failed to set device precedence");
+/// ```
+///
+/// ## Important Notes
+///
+/// - Setting very high precedence values may interfere with system functionality
+/// - Be careful when setting precedence above system-critical applications
+/// - Always test precedence interactions with other input software
+/// - Consider using moderate precedence values (e.g., 1-100) for most applications
+///
+/// ## Reference
+///
+/// Based on concepts from Yorick Oblita's input hooking articles and the original
+/// Interception library documentation.
 pub type Precedence = c_int;
 
 /// Keyboard key state flags
@@ -436,6 +554,34 @@ impl Device {
         }
     }
 
+    /// Set precedence for this specific device
+    ///
+    /// Sets the precedence value for this individual device, allowing fine-grained
+    /// control over event processing order on a per-device basis. This is useful when
+    /// you need different precedence levels for different input types.
+    ///
+    /// # Arguments
+    ///
+    /// * `precedence` - The precedence value to set. Higher values mean higher priority.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use interception::{Interception, Device};
+    ///
+    /// let mut context = Interception::new()?;
+    /// let devices = context.devices_mut();
+    ///
+    /// // Set different precedence for different devices
+    /// devices[0].set_precedence(100)?; // High priority for first device
+    /// devices[1].set_precedence(50)?;  // Medium priority for second device
+    /// # Ok::<(), interception::InterceptionError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the precedence could not be set, typically due to
+    /// driver communication issues or insufficient permissions.
     pub fn set_precedence(&mut self, precedence: Precedence) -> Result<()> {
         match self {
             Device::Keyboard(device) => device.set_precedence(precedence),
@@ -443,6 +589,35 @@ impl Device {
         }
     }
 
+    /// Get the current precedence for this specific device
+    ///
+    /// Retrieves the precedence value currently set for this device. This can be
+    /// useful for debugging precedence configurations or implementing dynamic
+    /// precedence adjustments.
+    ///
+    /// # Returns
+    ///
+    /// Returns the current precedence value, or an error if it could not be retrieved.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use interception::Interception;
+    ///
+    /// let mut context = Interception::new()?;
+    /// let devices = context.devices_mut();
+    ///
+    /// // Set and verify precedence
+    /// devices[0].set_precedence(42)?;
+    /// let current_precedence = devices[0].get_precedence()?;
+    /// assert_eq!(current_precedence, 42);
+    /// # Ok::<(), interception::InterceptionError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the precedence could not be retrieved, typically due to
+    /// driver communication issues.
     pub fn get_precedence(&mut self) -> Result<Precedence> {
         match self {
             Device::Keyboard(device) => device.get_precedence(),
@@ -500,11 +675,81 @@ impl KeyboardDevice {
     }
 
     /// Set precedence for this keyboard device
+    ///
+    /// Sets the precedence value specifically for this keyboard device. Higher precedence
+    /// values ensure that this keyboard device processes events before other input hooks
+    /// with lower precedence values.
+    ///
+    /// This is particularly useful when implementing keyboard-specific transformations
+    /// or filters that need to run before other system hooks.
+    ///
+    /// # Arguments
+    ///
+    /// * `precedence` - The precedence value to set. Higher values mean higher priority.
+    ///   Common values range from 0-100, but any `i32` value is valid.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use interception::{KeyboardDevice, FILTER_KEY_ALL};
+    ///
+    /// let mut keyboard = KeyboardDevice::new(0)?;
+    /// keyboard.set_filter(FILTER_KEY_ALL)?;
+    ///
+    /// // Set high precedence for system-wide key remapping
+    /// keyboard.set_precedence(80)?;
+    /// # Ok::<(), interception::InterceptionError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the precedence could not be set, typically due to:
+    /// - Driver communication failure
+    /// - Insufficient permissions
+    /// - Device not properly initialized
+    ///
+    /// # See Also
+    ///
+    /// - [`KeyboardDevice::get_precedence`] to retrieve current precedence
+    /// - [`Precedence`] type documentation for detailed precedence concepts
     pub fn set_precedence(&mut self, precedence: Precedence) -> Result<()> {
         self.0.set_precedence(precedence)
     }
 
-    /// Get precedence for this keyboard device
+    /// Get the current precedence for this keyboard device
+    ///
+    /// Retrieves the precedence value currently configured for this keyboard device.
+    /// This can be useful for debugging, logging, or implementing dynamic precedence
+    /// adjustments based on current system state.
+    ///
+    /// # Returns
+    ///
+    /// Returns the current precedence value as an `i32`. Default precedence is typically 0.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use interception::KeyboardDevice;
+    ///
+    /// let mut keyboard = KeyboardDevice::new(0)?;
+    ///
+    /// // Check default precedence
+    /// let default_precedence = keyboard.get_precedence()?;
+    /// println!("Default precedence: {}", default_precedence);
+    ///
+    /// // Set and verify new precedence
+    /// keyboard.set_precedence(25)?;
+    /// let new_precedence = keyboard.get_precedence()?;
+    /// assert_eq!(new_precedence, 25);
+    /// # Ok::<(), interception::InterceptionError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the precedence could not be retrieved, typically due to:
+    /// - Driver communication failure
+    /// - Device not properly initialized
+    /// - System resource issues
     pub fn get_precedence(&mut self) -> Result<Precedence> {
         self.0.get_precedence()
     }
@@ -568,11 +813,82 @@ impl MouseDevice {
     }
 
     /// Set precedence for this mouse device
+    ///
+    /// Sets the precedence value specifically for this mouse device. Higher precedence
+    /// values ensure that this mouse device processes events before other input hooks
+    /// with lower precedence values.
+    ///
+    /// This is particularly useful when implementing mouse-specific transformations,
+    /// gesture recognition, or cursor behavior modifications that need to run before
+    /// other system hooks.
+    ///
+    /// # Arguments
+    ///
+    /// * `precedence` - The precedence value to set. Higher values mean higher priority.
+    ///   Common values range from 0-100, but any `i32` value is valid.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use interception::{MouseDevice, FILTER_MOUSE_ALL};
+    ///
+    /// let mut mouse = MouseDevice::new(0)?;
+    /// mouse.set_filter(FILTER_MOUSE_ALL)?;
+    ///
+    /// // Set high precedence for cursor acceleration or gesture recognition
+    /// mouse.set_precedence(90)?;
+    /// # Ok::<(), interception::InterceptionError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the precedence could not be set, typically due to:
+    /// - Driver communication failure
+    /// - Insufficient permissions
+    /// - Device not properly initialized
+    ///
+    /// # See Also
+    ///
+    /// - [`MouseDevice::get_precedence`] to retrieve current precedence
+    /// - [`Precedence`] type documentation for detailed precedence concepts
     pub fn set_precedence(&mut self, precedence: Precedence) -> Result<()> {
         self.0.set_precedence(precedence)
     }
 
-    /// Get precedence for this mouse device
+    /// Get the current precedence for this mouse device
+    ///
+    /// Retrieves the precedence value currently configured for this mouse device.
+    /// This can be useful for debugging, logging, or implementing dynamic precedence
+    /// adjustments based on current system state or user preferences.
+    ///
+    /// # Returns
+    ///
+    /// Returns the current precedence value as an `i32`. Default precedence is typically 0.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use interception::MouseDevice;
+    ///
+    /// let mut mouse = MouseDevice::new(0)?;
+    ///
+    /// // Check default precedence
+    /// let default_precedence = mouse.get_precedence()?;
+    /// println!("Default precedence: {}", default_precedence);
+    ///
+    /// // Set and verify new precedence
+    /// mouse.set_precedence(60)?;
+    /// let new_precedence = mouse.get_precedence()?;
+    /// assert_eq!(new_precedence, 60);
+    /// # Ok::<(), interception::InterceptionError>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the precedence could not be retrieved, typically due to:
+    /// - Driver communication failure
+    /// - Device not properly initialized
+    /// - System resource issues
     pub fn get_precedence(&mut self) -> Result<Precedence> {
         self.0.get_precedence()
     }
