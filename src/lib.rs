@@ -81,6 +81,8 @@ impl Interception {
             let mut device = Device::new(i)?;
             let wait_handle = WaitHandle::new()?;
             unsafe {
+                // SAFETY: We ensure wait handles will be dropped at the same time when the devices
+                // are dropped, therefore it will always be valid during device's lifetime.
                 device.set_wait_handle(&wait_handle)?;
             }
             devices.push(device);
@@ -103,9 +105,13 @@ impl Interception {
         &self.devices
     }
 
-    pub fn wait(&self, timeout: Option<Duration>) -> Result<&Device> {
+    pub fn devices_mut(&mut self) -> &mut [Device; MAX_DEVICES] {
+        &mut self.devices
+    }
+
+    pub fn wait(&mut self, timeout: Option<Duration>) -> Result<&mut Device> {
         let index = wait(&self.wait_handles, timeout)?;
-        Ok(&self.devices[index])
+        Ok(&mut self.devices[index])
     }
 }
 
