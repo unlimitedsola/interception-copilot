@@ -28,14 +28,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Created {} keyboard device(s)", keyboards.len());
 
     // Set filter to capture all keyboard events on each device
-    for kb in &keyboards {
+    for kb in &mut keyboards {
         kb.set_filter(FILTER_KEY_ALL)?;
     }
 
     // Main event loop
     loop {
         // Check each keyboard device for input
-        for (device_index, keyboard) in keyboards.iter().enumerate() {
+        for (device_index, keyboard) in keyboards.iter_mut().enumerate() {
             // Try to receive keyboard strokes from the device
             match keyboard.receive(10) {
                 Ok(strokes) => {
