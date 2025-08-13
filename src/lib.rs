@@ -645,31 +645,39 @@ impl RawDevice {
     /// Get hardware ID for this device
     fn get_hardware_id(&mut self) -> Result<String> {
         // This should be large enough. `MAX_DEVICE_ID_LEN` is `200`.
-        let mut buffer = vec![0u8; 512];
+        // Using u16 buffer directly since hardware IDs are UTF-16 strings
+        let mut buffer = vec![0u16; 256];
 
         let output_size = self
             .0
             .ioctl_out(IOCTL_GET_HARDWARE_ID, buffer.as_mut_slice())?;
 
-        buffer.truncate(output_size as usize);
+        // Truncate to actual u16 count (output_size is in bytes)
+        let u16_count = (output_size as usize) / 2;
+        buffer.truncate(u16_count);
 
-        // Convert bytes to UTF-16 string if possible, otherwise hex dump
-        let hardware_str = if buffer.len() >= 2 && buffer.len() % 2 == 0 {
-            let u16_chars: Vec<u16> = buffer
-                .chunks_exact(2)
-                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-                .collect();
-            String::from_utf16_lossy(&u16_chars)
+        // Convert UTF-16 to string if we have valid data, otherwise hex dump
+        let hardware_str = if !buffer.is_empty() {
+            let utf16_string = String::from_utf16_lossy(&buffer)
                 .trim_end_matches('\0')
-                .to_string()
+                .to_string();
+
+            // If conversion resulted in a valid-looking string, use it
+            if utf16_string
+                .chars()
+                .all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
+            {
+                utf16_string
+            } else {
+                // Fall back to hex representation of the raw bytes
+                let bytes: Vec<u8> = buffer.iter().flat_map(|&u| u.to_le_bytes()).collect();
+                format!(
+                    "0x{}",
+                    bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+                )
+            }
         } else {
-            format!(
-                "0x{}",
-                buffer
-                    .iter()
-                    .map(|b| format!("{b:02x}"))
-                    .collect::<String>()
-            )
+            "0x".to_string()
         };
 
         Ok(hardware_str)
