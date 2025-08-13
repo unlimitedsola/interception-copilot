@@ -49,9 +49,10 @@
 #![cfg(windows)]
 
 use std::error::Error;
-use std::ffi::{c_int, c_long, c_short, c_uint, c_ulong, c_ushort, c_void};
+use std::ffi::{OsString, c_int, c_long, c_short, c_uint, c_ulong, c_ushort, c_void};
 use std::fmt::{Display, Formatter};
 use std::mem;
+use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::time::Duration;
 use windows_sys::Win32::{
@@ -646,41 +647,21 @@ impl RawDevice {
     fn get_hardware_id(&mut self) -> Result<String> {
         // This should be large enough. `MAX_DEVICE_ID_LEN` is `200`.
         // Using u16 buffer directly since hardware IDs are UTF-16 strings
-        let mut buffer = vec![0u16; 256];
+        let mut buf = vec![0u16; 256];
 
         let output_size = self
             .0
-            .ioctl_out(IOCTL_GET_HARDWARE_ID, buffer.as_mut_slice())?;
+            .ioctl_out(IOCTL_GET_HARDWARE_ID, buf.as_mut_slice())?;
 
         // Truncate to actual u16 count (output_size is in bytes)
-        let u16_count = (output_size as usize) / 2;
-        buffer.truncate(u16_count);
+        let len = (output_size as usize) / size_of::<u16>();
+        buf.truncate(len);
 
-        // Convert UTF-16 to string if we have valid data, otherwise hex dump
-        let hardware_str = if !buffer.is_empty() {
-            let utf16_string = String::from_utf16_lossy(&buffer)
-                .trim_end_matches('\0')
-                .to_string();
+        let w_str = buf
+            .strip_suffix(&[0])
+            .expect("Buffer should end with null terminator");
 
-            // If conversion resulted in a valid-looking string, use it
-            if utf16_string
-                .chars()
-                .all(|c| c.is_ascii_graphic() || c.is_ascii_whitespace())
-            {
-                utf16_string
-            } else {
-                // Fall back to hex representation of the raw bytes
-                let bytes: Vec<u8> = buffer.iter().flat_map(|&u| u.to_le_bytes()).collect();
-                format!(
-                    "0x{}",
-                    bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
-                )
-            }
-        } else {
-            "0x".to_string()
-        };
-
-        Ok(hardware_str)
+        Ok(String::from_utf16_lossy(w_str))
     }
 
     /// Generic function to send strokes to a device
