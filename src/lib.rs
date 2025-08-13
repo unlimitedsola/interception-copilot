@@ -449,7 +449,7 @@ impl Device {
         }
     }
 
-    pub fn get_hardware_id(&mut self) -> Result<Vec<u8>> {
+    pub fn get_hardware_id(&mut self) -> Result<String> {
         match self {
             Device::Keyboard(device) => device.get_hardware_id(),
             Device::Mouse(device) => device.get_hardware_id(),
@@ -519,7 +519,7 @@ impl KeyboardDevice {
     }
 
     /// Get hardware ID for this keyboard device
-    pub fn get_hardware_id(&mut self) -> Result<Vec<u8>> {
+    pub fn get_hardware_id(&mut self) -> Result<String> {
         self.0.get_hardware_id()
     }
 }
@@ -587,7 +587,7 @@ impl MouseDevice {
     }
 
     /// Get hardware ID for this mouse device
-    pub fn get_hardware_id(&mut self) -> Result<Vec<u8>> {
+    pub fn get_hardware_id(&mut self) -> Result<String> {
         self.0.get_hardware_id()
     }
 }
@@ -643,7 +643,7 @@ impl RawDevice {
     }
 
     /// Get hardware ID for this device
-    fn get_hardware_id(&mut self) -> Result<Vec<u8>> {
+    fn get_hardware_id(&mut self) -> Result<String> {
         // This should be large enough. `MAX_DEVICE_ID_LEN` is `200`.
         let mut buffer = vec![0u8; 512];
 
@@ -652,7 +652,27 @@ impl RawDevice {
             .ioctl_out(IOCTL_GET_HARDWARE_ID, buffer.as_mut_slice())?;
 
         buffer.truncate(output_size as usize);
-        Ok(buffer)
+
+        // Convert bytes to UTF-16 string if possible, otherwise hex dump
+        let hardware_str = if buffer.len() >= 2 && buffer.len() % 2 == 0 {
+            let u16_chars: Vec<u16> = buffer
+                .chunks_exact(2)
+                .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                .collect();
+            String::from_utf16_lossy(&u16_chars)
+                .trim_end_matches('\0')
+                .to_string()
+        } else {
+            format!(
+                "0x{}",
+                buffer
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>()
+            )
+        };
+
+        Ok(hardware_str)
     }
 
     /// Generic function to send strokes to a device
