@@ -912,7 +912,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_typed_device_bounds_checking() {
+    fn test_device_bounds_checking() {
         // Test keyboard device creation bounds
         for i in 0..MAX_KEYBOARD {
             // We can't actually create devices without the driver, but we can test the bounds checking

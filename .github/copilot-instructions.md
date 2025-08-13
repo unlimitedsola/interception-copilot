@@ -78,8 +78,8 @@ The `interception-c` folder contains the source code for the original C project 
 
 ### Main Components
 - `src/lib.rs` - Main library with safe Rust API wrapping Windows APIs
-- `examples/typed_keylogger.rs` - Example keyboard event logger using type-safe API
-- `examples/typed_mouse_capture.rs` - Example mouse event capture using type-safe API
+- `examples/keylogger.rs` - Example keyboard event logger using type-safe API
+- `examples/mouse_capture.rs` - Example mouse event capture using type-safe API
 - `interception-c/` - Original C implementation for reference
 
 ### Important Constants and Types
@@ -120,8 +120,8 @@ The `interception-c` folder contains the source code for the original C project 
 ├── Cargo.toml          # Project configuration
 ├── src/lib.rs          # Main library code  
 ├── examples/           # Usage examples
-│   ├── typed_keylogger.rs
-│   └── typed_mouse_capture.rs
+│   ├── keylogger.rs
+│   └── mouse_capture.rs
 ├── interception-c/     # Reference C implementation
 │   ├── library/        # Core C library
 │   └── samples/        # C example applications
