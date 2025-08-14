@@ -33,10 +33,7 @@ fn get_embedded_driver_data(
     driver_type: DriverType,
     system_info: &SystemInfo,
 ) -> Result<&'static [u8], InstallError> {
-    let prefix = system_info.get_driver_prefix();
-    let arch = system_info.get_architecture_suffix();
-
-    let driver_data = match (driver_type, prefix, arch) {
+    let driver_data = match (driver_type, system_info.version, system_info.architecture) {
         // Keyboard drivers
         (DriverType::Keyboard, WindowsNTVersion::NT51, ProcessorArchitecture::X86) => {
             embed_driver!("KBDNT51X86.sys")
@@ -103,7 +100,8 @@ fn get_embedded_driver_data(
 
         _ => {
             return Err(InstallError::DriverNotFound(format!(
-                "No driver available for {driver_type:?} on {prefix:?} {arch:?}"
+                "No driver available for {driver_type:?} on {:?} {:?}",
+                system_info.version, system_info.architecture
             )));
         }
     };
@@ -263,23 +261,23 @@ impl InterceptionInstaller {
         Ok(())
     }
 
-    fn format_version(&self, version: &crate::system::WindowsVersion) -> &'static str {
+    fn format_version(&self, version: &crate::system::WindowsNTVersion) -> &'static str {
         match version {
-            crate::system::WindowsVersion::WindowsXP => "XP",
-            crate::system::WindowsVersion::Windows2003 => "Server 2003",
-            crate::system::WindowsVersion::WindowsVista => "Vista",
-            crate::system::WindowsVersion::Windows7 => "7",
-            crate::system::WindowsVersion::Windows8 => "8",
-            crate::system::WindowsVersion::Windows81 => "8.1",
-            crate::system::WindowsVersion::Windows10Plus => "10/11",
+            crate::system::WindowsNTVersion::NT51 => "XP",
+            crate::system::WindowsNTVersion::NT52 => "Server 2003",
+            crate::system::WindowsNTVersion::NT60 => "Vista",
+            crate::system::WindowsNTVersion::NT61 => "7/8/8.1/10/11",
         }
     }
 
-    fn format_architecture(&self, architecture: &crate::system::Architecture) -> &'static str {
+    fn format_architecture(
+        &self,
+        architecture: &crate::system::ProcessorArchitecture,
+    ) -> &'static str {
         match architecture {
-            crate::system::Architecture::X86 => "x86 (32-bit)",
-            crate::system::Architecture::AMD64 => "x64 (64-bit)",
-            crate::system::Architecture::IA64 => "IA-64",
+            crate::system::ProcessorArchitecture::X86 => "x86 (32-bit)",
+            crate::system::ProcessorArchitecture::A64 => "x64 (64-bit)",
+            crate::system::ProcessorArchitecture::I64 => "IA-64",
         }
     }
 }

@@ -4,24 +4,6 @@ use windows_sys::Win32::System::SystemInformation::{
 };
 
 #[derive(Debug, Clone, Copy)]
-pub enum WindowsVersion {
-    WindowsXP,     // 5.1
-    Windows2003,   // 5.2
-    WindowsVista,  // 6.0
-    Windows7,      // 6.1
-    Windows8,      // 6.2
-    Windows81,     // 6.3
-    Windows10Plus, // 10.0+
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Architecture {
-    X86,
-    AMD64,
-    IA64,
-}
-
-#[derive(Debug, Clone, Copy)]
 pub enum WindowsNTVersion {
     NT51, // Windows XP
     NT52, // Windows 2003
@@ -38,8 +20,8 @@ pub enum ProcessorArchitecture {
 
 #[derive(Debug)]
 pub struct SystemInfo {
-    pub version: WindowsVersion,
-    pub architecture: Architecture,
+    pub version: WindowsNTVersion,
+    pub architecture: ProcessorArchitecture,
 }
 
 impl SystemInfo {
@@ -52,29 +34,9 @@ impl SystemInfo {
             architecture,
         })
     }
-
-    pub fn get_driver_prefix(&self) -> WindowsNTVersion {
-        match self.version {
-            WindowsVersion::WindowsXP => WindowsNTVersion::NT51,
-            WindowsVersion::Windows2003 => WindowsNTVersion::NT52,
-            WindowsVersion::WindowsVista => WindowsNTVersion::NT60,
-            WindowsVersion::Windows7 => WindowsNTVersion::NT61,
-            WindowsVersion::Windows8 => WindowsNTVersion::NT61, // Use NT61 (Windows 7) drivers for Windows 8+
-            WindowsVersion::Windows81 => WindowsNTVersion::NT61, // Use NT61 (Windows 7) drivers for Windows 8+
-            WindowsVersion::Windows10Plus => WindowsNTVersion::NT61, // Use NT61 (Windows 7) drivers for Windows 10+
-        }
-    }
-
-    pub fn get_architecture_suffix(&self) -> ProcessorArchitecture {
-        match self.architecture {
-            Architecture::X86 => ProcessorArchitecture::X86,
-            Architecture::AMD64 => ProcessorArchitecture::A64,
-            Architecture::IA64 => ProcessorArchitecture::I64,
-        }
-    }
 }
 
-fn get_windows_version() -> Result<WindowsVersion, String> {
+fn get_windows_version() -> Result<WindowsNTVersion, String> {
     unsafe {
         let mut version_info = OSVERSIONINFOW {
             dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
@@ -90,21 +52,21 @@ fn get_windows_version() -> Result<WindowsVersion, String> {
         }
 
         let version = match (version_info.dwMajorVersion, version_info.dwMinorVersion) {
-            (5, 1) => WindowsVersion::WindowsXP,
-            (5, 2) => WindowsVersion::Windows2003,
-            (6, 0) => WindowsVersion::WindowsVista,
-            (6, 1) => WindowsVersion::Windows7,
-            (6, 2) => WindowsVersion::Windows8,
-            (6, 3) => WindowsVersion::Windows81,
-            (10, _) => WindowsVersion::Windows10Plus,
-            _ => WindowsVersion::Windows10Plus, // Default to newest for unknown versions
+            (5, 1) => WindowsNTVersion::NT51,  // Windows XP
+            (5, 2) => WindowsNTVersion::NT52,  // Windows 2003
+            (6, 0) => WindowsNTVersion::NT60,  // Windows Vista
+            (6, 1) => WindowsNTVersion::NT61,  // Windows 7
+            (6, 2) => WindowsNTVersion::NT61,  // Windows 8 - use NT61 drivers
+            (6, 3) => WindowsNTVersion::NT61,  // Windows 8.1 - use NT61 drivers
+            (10, _) => WindowsNTVersion::NT61, // Windows 10+ - use NT61 drivers
+            _ => WindowsNTVersion::NT61,       // Default to NT61 for unknown versions
         };
 
         Ok(version)
     }
 }
 
-fn get_architecture() -> Result<Architecture, String> {
+fn get_architecture() -> Result<ProcessorArchitecture, String> {
     unsafe {
         let mut system_info = std::mem::zeroed::<SYSTEM_INFO>();
         GetSystemInfo(&mut system_info);
@@ -114,9 +76,9 @@ fn get_architecture() -> Result<Architecture, String> {
         const PROCESSOR_ARCHITECTURE_IA64: u16 = 6;
 
         let architecture = match system_info.Anonymous.Anonymous.wProcessorArchitecture {
-            PROCESSOR_ARCHITECTURE_INTEL => Architecture::X86,
-            PROCESSOR_ARCHITECTURE_AMD64 => Architecture::AMD64,
-            PROCESSOR_ARCHITECTURE_IA64 => Architecture::IA64,
+            PROCESSOR_ARCHITECTURE_INTEL => ProcessorArchitecture::X86,
+            PROCESSOR_ARCHITECTURE_AMD64 => ProcessorArchitecture::A64,
+            PROCESSOR_ARCHITECTURE_IA64 => ProcessorArchitecture::I64,
             _ => return Err("Unsupported processor architecture".to_string()),
         };
 
