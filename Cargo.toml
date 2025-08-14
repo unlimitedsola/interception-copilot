@@ -10,8 +10,8 @@ edition = "2024"
 authors = ["Interception"]
 description = "Rust port of the Interception library using windows-sys with a safe API"
 license = "LGPL-3.0-only"
-repository = "https://github.com/unlimitedsola/interception-copilot"
-documentation = "https://docs.rs/interception-copilot"
+repository = "https://github.com/unlimitedsola/interception"
+documentation = "https://docs.rs/interception"
 keywords = ["windows", "input", "keyboard", "mouse", "interception"]
 categories = ["os::windows-apis", "api-bindings"]
 
