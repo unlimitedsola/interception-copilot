@@ -2,7 +2,9 @@
 
 Interception is a Rust port of the [Interception library](https://github.com/oblitum/Interception) using `windows-sys` with a safe API for intercepting keyboard and mouse input on Windows systems.
 
-*Note: This repository is named "interception-copilot" to indicate it's a GitHub Copilot workspace, but the library itself is called "interception" - the same name as the original C implementation.*
+_Note: This repository is named "interception-copilot" to indicate it's a GitHub Copilot workspace, but the library itself is called "interception" - the same name as the original C implementation._
+
+> Naming Policy: Outside of this `.github/copilot-instructions.md` file (and unavoidable occurrences in the repository name or remote URL), the word `copilot` MUST NOT appear in source code, documentation, commit messages, issue / PR titles or descriptions, binary names, or published crate metadata. Always refer to the library simply as `interception`. If you encounter an existing occurrence elsewhere, remove or rename it (except for the repository folder name itself) as a housekeeping fix.
 
 **ALWAYS reference these instructions first and fallback to search or bash commands only when you encounter unexpected information that does not match the info here.**
 
@@ -32,6 +34,7 @@ Interception is a Rust port of the [Interception library](https://github.com/obl
 ### How to Update Instructions
 
 When updating these instructions:
+
 - Make changes directly to `.github/copilot-instructions.md`
 - Keep the existing structure and formatting consistent
 - Be specific and actionable in your additions
@@ -51,7 +54,7 @@ When updating these instructions:
 # Install MinGW-w64 cross-compiler (required for linking)
 sudo apt update && sudo apt install -y gcc-mingw-w64-x86-64
 
-# Install Windows target for Rust (required for compilation)  
+# Install Windows target for Rust (required for compilation)
 rustup target add x86_64-pc-windows-gnu
 ```
 
@@ -65,7 +68,7 @@ rustup target add x86_64-pc-windows-gnu
 # Debug build - takes ~1.5 seconds, NEVER CANCEL, set timeout to 60+ seconds
 cargo build --target x86_64-pc-windows-gnu
 
-# Release build - takes ~1.5 seconds, NEVER CANCEL, set timeout to 30+ seconds  
+# Release build - takes ~1.5 seconds, NEVER CANCEL, set timeout to 30+ seconds
 cargo build --target x86_64-pc-windows-gnu --release
 
 # Build examples explicitly (if needed) - takes <1 second
@@ -105,19 +108,22 @@ The `interception-c` folder contains the source code for the original C project 
 **ALWAYS** use this as a reference for understanding the original implementation and functionality. The ported Rust code maintains the same functionality as the original C code, including the same memory layout for structs and ordering of fields.
 
 ### Key Reference Files
+
 - `interception-c/library/interception.h` - Original C API definitions
-- `interception-c/library/interception.c` - Original C implementation  
+- `interception-c/library/interception.c` - Original C implementation
 - `interception-c/samples/` - C example applications
 
 ## Code Structure
 
 ### Main Components
+
 - `src/lib.rs` - Main library with safe Rust API wrapping Windows APIs
 - `examples/keylogger.rs` - Example keyboard event logger using type-safe API
 - `examples/mouse_capture.rs` - Example mouse event capture using type-safe API
 - `interception-c/` - Original C implementation for reference
 
 ### Important Constants and Types
+
 - Device limits: `INTERCEPTION_MAX_KEYBOARD` (10), `INTERCEPTION_MAX_MOUSE` (10)
 - Key states: `KEY_DOWN`, `KEY_UP`, `KEY_E0`, `KEY_E1`
 - Mouse states: `MOUSE_LEFT_BUTTON_DOWN`, `MOUSE_RIGHT_BUTTON_DOWN`, etc.
@@ -126,13 +132,15 @@ The `interception-c` folder contains the source code for the original C project 
 ## Validation Scenarios
 
 ### What You CAN Validate on Linux
+
 - **Code compilation** for Windows target
 - **Static analysis** with clippy
-- **Code formatting** with rustfmt  
+- **Code formatting** with rustfmt
 - **Documentation generation**
 - **API consistency** with reference C implementation
 
 ### What You CANNOT Validate on Linux
+
 - **Runtime functionality** - requires Windows + Interception driver + admin privileges
 - **Hardware interaction** - needs real keyboard/mouse input
 - **Driver communication** - needs Windows kernel driver installed
@@ -150,10 +158,11 @@ The `interception-c` folder contains the source code for the original C project 
 ## Common Tasks Reference
 
 ### Repository Structure
+
 ```
 .
 ├── Cargo.toml          # Project configuration
-├── src/lib.rs          # Main library code  
+├── src/lib.rs          # Main library code
 ├── examples/           # Usage examples
 │   ├── keylogger.rs
 │   └── mouse_capture.rs
@@ -164,12 +173,14 @@ The `interception-c` folder contains the source code for the original C project 
 ```
 
 ### Build Artifacts Location
+
 - Debug binaries: `target/x86_64-pc-windows-gnu/debug/`
 - Release binaries: `target/x86_64-pc-windows-gnu/release/`
 - Examples: `target/x86_64-pc-windows-gnu/debug/examples/`
 - Documentation: `target/x86_64-pc-windows-gnu/doc/`
 
 ### Dependencies Summary
+
 - `windows-sys` v0.60.2 - Windows API bindings
 - MinGW-w64 - Cross-compilation toolchain
 - Rust x86_64-pc-windows-gnu target
@@ -177,20 +188,25 @@ The `interception-c` folder contains the source code for the original C project 
 ## Troubleshooting
 
 ### "could not find `cc`" Error
+
 ```bash
 sudo apt install -y gcc-mingw-w64-x86-64
 ```
 
-### "error: Microsoft Visual C++ is required" 
+### "error: Microsoft Visual C++ is required"
+
 This indicates you're not using the GNU target. Always use:
+
 ```bash
 --target x86_64-pc-windows-gnu
 ```
 
 ### Tests Failing with "Exec format error"
+
 This is **EXPECTED** on Linux. Windows executables cannot run on Linux.
 
 ### Missing Target Error
+
 ```bash
 rustup target add x86_64-pc-windows-gnu
 ```
