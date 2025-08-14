@@ -66,16 +66,6 @@
 //! ```
 //!
 
-//!
-//! ## Consolidated Structs
-//!
-//! The library uses consolidated structs that directly match the Windows API C-ABI:
-//! - `KeyStroke`: Combines public API and internal Windows structure for zero-copy operations
-//! - `MouseStroke`: Combines public API and internal Windows structure for zero-copy operations
-//!
-//! These structs have private fields to maintain API safety, but provide public constructors
-//! and accessor methods for common use cases.
-
 #![cfg(windows)]
 
 use std::error::Error;
@@ -135,6 +125,12 @@ impl Interception {
         &self.devices
     }
 
+    /// Get mutable reference to all devices in this context
+    ///
+    /// # Safety
+    ///
+    /// Although not marked as unsafe, the caller must not move any mutably borrowed `Device`
+    /// instance out of the returned reference.
     pub fn devices_mut(&mut self) -> &mut [Device; MAX_DEVICES] {
         &mut self.devices
     }
@@ -149,16 +145,6 @@ impl Interception {
     /// # Arguments
     ///
     /// * `precedence` - The precedence value to set. Higher values mean higher priority.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the precedence could not be set for any device, typically
-    /// due to driver communication issues or insufficient permissions.
-    ///
-    /// # See Also
-    ///
-    /// - [`Device::set_precedence`] for setting precedence on individual devices
-    /// - [`Precedence`] type documentation for detailed precedence concepts
     pub fn set_precedence(&mut self, precedence: Precedence) -> Result<()> {
         for device in &mut self.devices {
             device.set_precedence(precedence)?;
@@ -166,17 +152,30 @@ impl Interception {
         Ok(())
     }
 
+    /// Wait for any device to have input available.
+    ///
+    /// This method blocks until at least one device has input available or the timeout expires.
+    ///
+    /// # Safety
+    ///
+    /// Although not marked as unsafe, the caller must not move the mutably borrowed `Device`
+    /// instance out of the returned reference.
     pub fn wait(&mut self, timeout: Option<Duration>) -> Result<&mut Device> {
-        let index = wait(&self.wait_handles, timeout)?;
+        let index = self.wait_index(timeout)?;
         Ok(&mut self.devices[index])
+    }
+
+    pub fn wait_index(&mut self, timeout: Option<Duration>) -> Result<usize> {
+        let index = wait(&self.wait_handles, timeout)?;
+        Ok(index)
     }
 }
 
 // Constants from the original C header
-const MAX_KEYBOARD: usize = 10;
-const MAX_MOUSE: usize = 10;
+pub const MAX_KEYBOARD: usize = 10;
+pub const MAX_MOUSE: usize = 10;
 
-const MAX_DEVICES: usize = MAX_KEYBOARD + MAX_MOUSE;
+pub const MAX_DEVICES: usize = MAX_KEYBOARD + MAX_MOUSE;
 
 /// Precedence value for device handling order
 ///
