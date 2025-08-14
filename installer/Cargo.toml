@@ -6,6 +6,10 @@ authors = ["Interception"]
 description = "Driver installer for the Interception library"
 license = "LGPL-3.0-only"
 
+[[bin]]
+name = "interception-installer"
+path = "src/main.rs"
+
 [dependencies]
 windows-sys = { version = "0.60.2", features = [
     "Win32_Foundation",

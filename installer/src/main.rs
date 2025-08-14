@@ -1,11 +1,7 @@
 use std::env;
 use std::process;
 
-mod installer;
-mod registry;
-mod system;
-
-use installer::InterceptionInstaller;
+use interception_installer::InterceptionInstaller;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
