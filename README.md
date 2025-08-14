@@ -1,104 +1,88 @@
-# Interception - Rust Port
+# Interception
 
-This repository contains a Rust port of the [Interception library](https://github.com/oblitum/Interception) using `windows-sys` with a safe API for intercepting keyboard and mouse input on Windows systems.
+A Rust port of the [Interception library](https://github.com/oblitum/Interception) for intercepting keyboard and mouse input on Windows systems.
 
-## Repository Structure
+## Overview
 
-- **`src/`** - Main Interception library (Rust port)
-- **`installer/`** - Driver installer utility
-- **`examples/`** - Usage examples for the main library
-- **`interception-c/`** - Original C implementation (reference)
+Interception provides a low-level interface for intercepting and modifying keyboard and mouse input at the driver level on Windows. This Rust implementation maintains full compatibility with the original C library while providing modern safety guarantees.
+
+## Features
+
+- **Low-level input interception** - Intercept keyboard and mouse events at the driver level
+- **Real-time input modification** - Modify or block input events in real-time
+- **Safe Rust API** - Memory-safe wrapper around Windows APIs
+- **Driver installer included** - Self-contained installer for required Windows drivers
 
 ## Components
 
-### Main Library (`src/`)
+### Main Library
 
-The main library provides a safe Rust API for intercepting keyboard and mouse input on Windows. It maintains the same functionality as the original C implementation while providing Rust safety guarantees.
+The core library provides functions for:
+- Setting up device contexts and filters
+- Receiving keyboard and mouse events
+- Sending modified events back to the system
+- Managing device priorities and filters
 
-### Driver Installer (`installer/`)
+### Driver Installer
 
-A comprehensive driver installer that handles:
+A comprehensive installer utility that handles driver installation and setup automatically:
 
-- Automatic Windows version and architecture detection
-- Driver file installation to system directories
-- Windows registry service configuration
-- Device class filter setup
-- Complete uninstallation support
-
-**Usage:**
 ```bash
-# Install drivers
+# Install Interception drivers
 interception-installer install
 
-# Uninstall drivers  
+# Remove Interception drivers  
 interception-installer uninstall
 ```
 
-**Requirements:**
-- Administrator privileges
-- Windows system with compatible driver files
-- System reboot after installation/uninstallation
+## Requirements
 
-## Building
+- Windows system (Windows XP or later)
+- Administrator privileges for driver installation
+- System reboot required after driver installation
 
-This is a Windows-only library but can be cross-compiled on Linux:
+## Installation
 
-```bash
-# Install cross-compilation tools (Ubuntu/Debian)
-sudo apt install gcc-mingw-w64-x86-64
-rustup target add x86_64-pc-windows-gnu
+1. Download the latest release
+2. Run the installer with administrator privileges:
+   ```bash
+   interception-installer install
+   ```
+3. Reboot your system
+4. You can now use applications that depend on Interception
 
-# Build main library
-cargo build --target x86_64-pc-windows-gnu
+## Usage Example
 
-# Build installer
-cargo build --target x86_64-pc-windows-gnu -p interception-installer
+```rust
+use interception::*;
 
-# Build release versions
-cargo build --target x86_64-pc-windows-gnu --release
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let context = InterceptionContext::new()?;
+    
+    // Set up keyboard filter
+    context.set_filter(
+        Device::Keyboard(1),
+        Filter::KeyFilter::All
+    )?;
+    
+    loop {
+        if let Some(device) = context.wait()? {
+            let stroke = context.receive(device)?;
+            
+            // Process the input stroke
+            // ... your input processing logic here ...
+            
+            // Send the stroke back to the system
+            context.send(device, stroke)?;
+        }
+    }
+}
 ```
-
-## Testing
-
-**Important:** Tests compile but cannot run on Linux since this library requires Windows-specific drivers and APIs. Testing must be done on Windows systems with the Interception driver installed.
-
-```bash
-# Compile tests (Linux/Windows)
-cargo test --target x86_64-pc-windows-gnu --no-run
-
-# Run tests (Windows only, requires admin privileges)
-cargo test --target x86_64-pc-windows-gnu
-```
-
-## Code Quality
-
-```bash
-# Format code
-cargo fmt --all
-
-# Lint code
-cargo clippy --target x86_64-pc-windows-gnu --all-targets --all-features -- -D warnings
-
-# Generate documentation
-cargo doc --target x86_64-pc-windows-gnu --no-deps
-```
-
-## Driver Files
-
-The installer includes driver files for multiple Windows versions and architectures:
-
-- **Windows XP** (5.1) - drivers with prefix `51`
-- **Windows Server 2003** (5.2) - drivers with prefix `52` 
-- **Windows Vista** (6.0) - drivers with prefix `60`
-- **Windows 7** (6.1) - drivers with prefix `61`
-- **Windows 8/8.1/10/11** - uses Windows 7 drivers (`61`)
-
-Each version supports x86, x64, and IA-64 architectures where applicable.
 
 ## License
 
 This project is dual-licensed under LGPL-3.0-only for non-commercial use. See the original [Interception project](https://github.com/oblitum/Interception) for commercial licensing options.
 
-## Reference Implementation  
+## Reference
 
-The `interception-c/` directory contains the original C implementation for reference. The Rust port maintains API compatibility and identical functionality.
+Based on the original [Interception library](https://github.com/oblitum/Interception) by Francisco Lopes.

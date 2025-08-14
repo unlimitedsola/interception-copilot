@@ -43,4 +43,4 @@ pub mod registry;
 pub mod system;
 
 pub use installer::{InstallError, InterceptionInstaller};
-pub use system::{Architecture, SystemInfo, WindowsVersion};
+pub use system::{ProcessorArchitecture, SystemInfo, WindowsNTVersion};
