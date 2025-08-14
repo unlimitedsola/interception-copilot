@@ -37,25 +37,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut interception = Interception::new()?;
 
     // Set precedence and filter for keyboard devices
+    interception.set_precedence(precedence)?;
     for device in interception.devices_mut() {
         if let Device::Keyboard(keyboard) = device {
-            keyboard.set_precedence(precedence)?;
             keyboard.set_filter(FILTER_KEY_ALL)?;
-        }
-    }
-
-    println!("Device hardware IDs:");
-    for (i, device) in interception.devices_mut().iter_mut().enumerate() {
-        let hw_id = device
-            .get_hardware_id()
-            .unwrap_or_else(|_| String::from("Unknown"));
-        match device {
-            Device::Keyboard(_) => {
-                println!("  Keyboard {i}: {hw_id}");
-            }
-            Device::Mouse(_) => {
-                println!("  Mouse {i}: {hw_id}");
-            }
         }
     }
 
