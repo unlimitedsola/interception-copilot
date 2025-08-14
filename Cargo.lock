@@ -12,6 +12,9 @@ dependencies = [
 [[package]]
 name = "interception-installer"
 version = "0.1.0"
+dependencies = [
+ "windows-sys",
+]
 
 [[package]]
 name = "windows-link"
