@@ -5,6 +5,7 @@ use windows_sys::Win32::System::Registry::{
     RegCreateKeyExW, RegDeleteKeyW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW,
     RegSetValueExW,
 };
+use windows_sys::w;
 
 const SERVICES_KEY: &str = r"SYSTEM\CurrentControlSet\Services";
 const KEYBOARD_CLASS_KEY: &str =
@@ -13,6 +14,12 @@ const MOUSE_CLASS_KEY: &str =
     r"SYSTEM\CurrentControlSet\Control\Class\{4d36e96f-e325-11ce-bfc1-08002be10318}";
 
 pub struct RegistryManager;
+
+impl Default for RegistryManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl RegistryManager {
     pub fn new() -> Self {
@@ -59,12 +66,12 @@ impl RegistryManager {
                 HKEY_LOCAL_MACHINE,
                 service_key_wide.as_ptr(),
                 0,
-                ptr::null_mut(),
-                0,
+                ptr::null_mut(), // lpClass - can be null
+                0,               // dwOptions
                 KEY_ALL_ACCESS,
-                ptr::null_mut(),
+                ptr::null_mut(), // lpSecurityAttributes - can be null
                 &mut key,
-                ptr::null_mut(),
+                ptr::null_mut(), // lpdwDisposition - can be null
             );
 
             if result != ERROR_SUCCESS {
@@ -75,7 +82,7 @@ impl RegistryManager {
             let display_name_wide = to_wide_string(display_name);
             RegSetValueExW(
                 key,
-                to_wide_string("DisplayName").as_ptr(),
+                w!("DisplayName"),
                 0,
                 REG_SZ,
                 display_name_wide.as_ptr() as *const u8,
@@ -86,7 +93,7 @@ impl RegistryManager {
             let driver_type: u32 = 1;
             RegSetValueExW(
                 key,
-                to_wide_string("Type").as_ptr(),
+                w!("Type"),
                 0,
                 REG_DWORD,
                 &driver_type as *const u32 as *const u8,
@@ -97,7 +104,7 @@ impl RegistryManager {
             let error_control: u32 = 1;
             RegSetValueExW(
                 key,
-                to_wide_string("ErrorControl").as_ptr(),
+                w!("ErrorControl"),
                 0,
                 REG_DWORD,
                 &error_control as *const u32 as *const u8,
@@ -108,7 +115,7 @@ impl RegistryManager {
             let start_type: u32 = 3;
             RegSetValueExW(
                 key,
-                to_wide_string("Start").as_ptr(),
+                w!("Start"),
                 0,
                 REG_DWORD,
                 &start_type as *const u32 as *const u8,
@@ -119,7 +126,7 @@ impl RegistryManager {
             let image_path_wide = to_wide_string(driver_path);
             RegSetValueExW(
                 key,
-                to_wide_string("ImagePath").as_ptr(),
+                w!("ImagePath"),
                 0,
                 REG_SZ,
                 image_path_wide.as_ptr() as *const u8,
@@ -204,7 +211,7 @@ impl RegistryManager {
 
             if filters.is_empty() {
                 // Delete the UpperFilters value if no filters remain
-                RegDeleteValueW(key, to_wide_string("UpperFilters").as_ptr());
+                RegDeleteValueW(key, w!("UpperFilters"));
             } else {
                 self.set_upper_filters(key, &filters)?;
             }
@@ -223,7 +230,7 @@ impl RegistryManager {
             // Get the size of the data
             let result = RegQueryValueExW(
                 key,
-                to_wide_string("UpperFilters").as_ptr(),
+                w!("UpperFilters"),
                 ptr::null_mut(),
                 &mut data_type,
                 ptr::null_mut(),
@@ -238,7 +245,7 @@ impl RegistryManager {
             let mut buffer = vec![0u8; buffer_size as usize];
             let result = RegQueryValueExW(
                 key,
-                to_wide_string("UpperFilters").as_ptr(),
+                w!("UpperFilters"),
                 ptr::null_mut(),
                 &mut data_type,
                 buffer.as_mut_ptr(),
@@ -291,7 +298,7 @@ impl RegistryManager {
         unsafe {
             let result = RegSetValueExW(
                 key,
-                to_wide_string("UpperFilters").as_ptr(),
+                w!("UpperFilters"),
                 0,
                 REG_MULTI_SZ,
                 wide_data.as_ptr() as *const u8,

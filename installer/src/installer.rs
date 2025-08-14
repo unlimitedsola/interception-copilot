@@ -2,10 +2,40 @@ use crate::registry::RegistryManager;
 use crate::system::SystemInfo;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const DRIVERS_PATH: &str = r"C:\Windows\System32\drivers";
-const DRIVER_FILES_DIR: &str = "interception-c/drivers";
+
+// Embedded driver files
+macro_rules! embed_driver {
+    ($name:literal) => {
+        ($name, include_bytes!(concat!("../drivers/", $name)))
+    };
+}
+
+// All driver files embedded in the binary
+const EMBEDDED_DRIVERS: &[(&str, &[u8])] = &[
+    embed_driver!("KBDNT51X86.sys"),
+    embed_driver!("KBDNT52A64.sys"),
+    embed_driver!("KBDNT52I64.sys"),
+    embed_driver!("KBDNT52X86.sys"),
+    embed_driver!("KBDNT60A64.sys"),
+    embed_driver!("KBDNT60I64.sys"),
+    embed_driver!("KBDNT60X86.sys"),
+    embed_driver!("KBDNT61A64.sys"),
+    embed_driver!("KBDNT61I64.sys"),
+    embed_driver!("KBDNT61X86.sys"),
+    embed_driver!("MOUNT51X86.sys"),
+    embed_driver!("MOUNT52A64.sys"),
+    embed_driver!("MOUNT52I64.sys"),
+    embed_driver!("MOUNT52X86.sys"),
+    embed_driver!("MOUNT60A64.sys"),
+    embed_driver!("MOUNT60I64.sys"),
+    embed_driver!("MOUNT60X86.sys"),
+    embed_driver!("MOUNT61A64.sys"),
+    embed_driver!("MOUNT61I64.sys"),
+    embed_driver!("MOUNT61X86.sys"),
+];
 
 #[derive(Debug)]
 pub enum InstallError {
@@ -41,6 +71,12 @@ impl From<io::Error> for InstallError {
 
 pub struct InterceptionInstaller {
     registry: RegistryManager,
+}
+
+impl Default for InterceptionInstaller {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InterceptionInstaller {
@@ -110,11 +146,11 @@ impl InterceptionInstaller {
         let target_filename = format!("{driver_type}.sys");
         let target_path = Path::new(DRIVERS_PATH).join(&target_filename);
 
-        // Find source file in the driver directory
-        let source_path = self.find_driver_file(&source_filename)?;
+        // Find embedded driver data
+        let driver_data = self.get_embedded_driver(&source_filename)?;
 
-        // Copy driver file to system directory
-        fs::copy(&source_path, &target_path)?;
+        // Write driver file to system directory
+        fs::write(&target_path, driver_data)?;
 
         // Set up registry entries
         let driver_path = format!(r"\SystemRoot\system32\drivers\{target_filename}");
@@ -171,37 +207,21 @@ impl InterceptionInstaller {
         Ok(())
     }
 
-    fn find_driver_file(&self, filename: &str) -> Result<PathBuf, InstallError> {
-        // Try to find the driver file relative to the current executable
-        let exe_dir = std::env::current_exe()
-            .map_err(|_| {
-                InstallError::DriverNotFound("Cannot determine executable path".to_string())
-            })?
-            .parent()
+    fn get_embedded_driver(&self, filename: &str) -> Result<&'static [u8], InstallError> {
+        EMBEDDED_DRIVERS
+            .iter()
+            .find(|(name, _)| *name == filename)
+            .map(|(_, data)| *data)
             .ok_or_else(|| {
-                InstallError::DriverNotFound("Cannot determine executable directory".to_string())
-            })?
-            .to_path_buf();
-
-        // Search in multiple possible locations
-        let search_paths = [
-            exe_dir.join(DRIVER_FILES_DIR).join(filename),
-            exe_dir.join("drivers").join(filename),
-            exe_dir.join(filename),
-            PathBuf::from(DRIVER_FILES_DIR).join(filename),
-            PathBuf::from("drivers").join(filename),
-            PathBuf::from(filename),
-        ];
-
-        for path in &search_paths {
-            if path.exists() {
-                return Ok(path.clone());
-            }
-        }
-
-        Err(InstallError::DriverNotFound(format!(
-            "Driver file not found: {filename}"
-        )))
+                InstallError::DriverNotFound(format!(
+                    "Driver file not found in embedded data: {filename}. Available drivers: {}",
+                    EMBEDDED_DRIVERS
+                        .iter()
+                        .map(|(name, _)| *name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ))
+            })
     }
 
     fn format_version(&self, version: &crate::system::WindowsVersion) -> &'static str {
