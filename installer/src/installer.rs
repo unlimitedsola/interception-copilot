@@ -6,36 +6,77 @@ use std::path::Path;
 
 const DRIVERS_PATH: &str = r"C:\Windows\System32\drivers";
 
-// Embedded driver files
+#[derive(Debug, Clone, Copy)]
+pub enum DriverType {
+    Keyboard,
+    Mouse,
+}
+
+impl DriverType {
+    pub fn file_prefix(&self) -> &'static str {
+        match self {
+            DriverType::Keyboard => "KBDNT",
+            DriverType::Mouse => "MOUNT",
+        }
+    }
+
+    pub fn service_name(&self) -> &'static str {
+        match self {
+            DriverType::Keyboard => "keyboard",
+            DriverType::Mouse => "mouse",
+        }
+    }
+}
+
+// Embedded driver files organized by type and system parameters
 macro_rules! embed_driver {
     ($name:literal) => {
-        ($name, include_bytes!(concat!("../drivers/", $name)))
+        include_bytes!(concat!("../drivers/", $name)) as &'static [u8]
     };
 }
 
-// All driver files embedded in the binary
-const EMBEDDED_DRIVERS: &[(&str, &[u8])] = &[
-    embed_driver!("KBDNT51X86.sys"),
-    embed_driver!("KBDNT52A64.sys"),
-    embed_driver!("KBDNT52I64.sys"),
-    embed_driver!("KBDNT52X86.sys"),
-    embed_driver!("KBDNT60A64.sys"),
-    embed_driver!("KBDNT60I64.sys"),
-    embed_driver!("KBDNT60X86.sys"),
-    embed_driver!("KBDNT61A64.sys"),
-    embed_driver!("KBDNT61I64.sys"),
-    embed_driver!("KBDNT61X86.sys"),
-    embed_driver!("MOUNT51X86.sys"),
-    embed_driver!("MOUNT52A64.sys"),
-    embed_driver!("MOUNT52I64.sys"),
-    embed_driver!("MOUNT52X86.sys"),
-    embed_driver!("MOUNT60A64.sys"),
-    embed_driver!("MOUNT60I64.sys"),
-    embed_driver!("MOUNT60X86.sys"),
-    embed_driver!("MOUNT61A64.sys"),
-    embed_driver!("MOUNT61I64.sys"),
-    embed_driver!("MOUNT61X86.sys"),
-];
+// Direct access to embedded drivers based on system parameters
+fn get_embedded_driver_data(
+    driver_type: DriverType,
+    system_info: &SystemInfo,
+) -> Result<&'static [u8], InstallError> {
+    let prefix = system_info.get_driver_prefix();
+    let arch = system_info.get_architecture_suffix();
+
+    let driver_data = match (driver_type, prefix, arch) {
+        // Keyboard drivers
+        (DriverType::Keyboard, "51", "X86") => embed_driver!("KBDNT51X86.sys"),
+        (DriverType::Keyboard, "52", "A64") => embed_driver!("KBDNT52A64.sys"),
+        (DriverType::Keyboard, "52", "I64") => embed_driver!("KBDNT52I64.sys"),
+        (DriverType::Keyboard, "52", "X86") => embed_driver!("KBDNT52X86.sys"),
+        (DriverType::Keyboard, "60", "A64") => embed_driver!("KBDNT60A64.sys"),
+        (DriverType::Keyboard, "60", "I64") => embed_driver!("KBDNT60I64.sys"),
+        (DriverType::Keyboard, "60", "X86") => embed_driver!("KBDNT60X86.sys"),
+        (DriverType::Keyboard, "61", "A64") => embed_driver!("KBDNT61A64.sys"),
+        (DriverType::Keyboard, "61", "I64") => embed_driver!("KBDNT61I64.sys"),
+        (DriverType::Keyboard, "61", "X86") => embed_driver!("KBDNT61X86.sys"),
+
+        // Mouse drivers
+        (DriverType::Mouse, "51", "X86") => embed_driver!("MOUNT51X86.sys"),
+        (DriverType::Mouse, "52", "A64") => embed_driver!("MOUNT52A64.sys"),
+        (DriverType::Mouse, "52", "I64") => embed_driver!("MOUNT52I64.sys"),
+        (DriverType::Mouse, "52", "X86") => embed_driver!("MOUNT52X86.sys"),
+        (DriverType::Mouse, "60", "A64") => embed_driver!("MOUNT60A64.sys"),
+        (DriverType::Mouse, "60", "I64") => embed_driver!("MOUNT60I64.sys"),
+        (DriverType::Mouse, "60", "X86") => embed_driver!("MOUNT60X86.sys"),
+        (DriverType::Mouse, "61", "A64") => embed_driver!("MOUNT61A64.sys"),
+        (DriverType::Mouse, "61", "I64") => embed_driver!("MOUNT61I64.sys"),
+        (DriverType::Mouse, "61", "X86") => embed_driver!("MOUNT61X86.sys"),
+
+        _ => {
+            return Err(InstallError::DriverNotFound(format!(
+                "No driver available for {driver_type:?} on Windows NT{prefix} {arch}"
+            )));
+        }
+    };
+
+    Ok(driver_data)
+}
 
 #[derive(Debug)]
 pub enum InstallError {
@@ -98,11 +139,11 @@ impl InterceptionInstaller {
 
         // Install keyboard driver
         println!("Installing keyboard driver...");
-        self.install_driver(&system_info, "keyboard", "KBDNT")?;
+        self.install_driver(&system_info, DriverType::Keyboard)?;
 
         // Install mouse driver
         println!("Installing mouse driver...");
-        self.install_driver(&system_info, "mouse", "MOUNT")?;
+        self.install_driver(&system_info, DriverType::Mouse)?;
 
         println!("Driver installation completed successfully.");
         println!();
@@ -116,11 +157,11 @@ impl InterceptionInstaller {
 
         // Uninstall keyboard driver
         println!("Removing keyboard driver...");
-        self.uninstall_driver("keyboard", "KBDNT")?;
+        self.uninstall_driver(DriverType::Keyboard)?;
 
         // Uninstall mouse driver
         println!("Removing mouse driver...");
-        self.uninstall_driver("mouse", "MOUNT")?;
+        self.uninstall_driver(DriverType::Mouse)?;
 
         println!("Driver uninstallation completed successfully.");
         println!();
@@ -132,22 +173,14 @@ impl InterceptionInstaller {
     fn install_driver(
         &self,
         system_info: &SystemInfo,
-        driver_type: &str,
-        file_prefix: &str,
+        driver_type: DriverType,
     ) -> Result<(), InstallError> {
-        // Determine source and target file names
-        let source_filename = format!(
-            "{}{}{}.sys",
-            file_prefix,
-            system_info.get_driver_prefix(),
-            system_info.get_architecture_suffix()
-        );
+        // Get embedded driver data directly
+        let driver_data = get_embedded_driver_data(driver_type, system_info)?;
 
-        let target_filename = format!("{driver_type}.sys");
+        // Target filename and path
+        let target_filename = format!("{}.sys", driver_type.service_name());
         let target_path = Path::new(DRIVERS_PATH).join(&target_filename);
-
-        // Find embedded driver data
-        let driver_data = self.get_embedded_driver(&source_filename)?;
 
         // Write driver file to system directory
         fs::write(&target_path, driver_data)?;
@@ -156,48 +189,38 @@ impl InterceptionInstaller {
         let driver_path = format!(r"\SystemRoot\system32\drivers\{target_filename}");
 
         match driver_type {
-            "keyboard" => {
+            DriverType::Keyboard => {
                 self.registry
                     .install_keyboard_service(&driver_path)
                     .map_err(InstallError::RegistryError)?;
             }
-            "mouse" => {
+            DriverType::Mouse => {
                 self.registry
                     .install_mouse_service(&driver_path)
                     .map_err(InstallError::RegistryError)?;
-            }
-            _ => {
-                return Err(InstallError::DriverNotFound(format!(
-                    "Unknown driver type: {driver_type}"
-                )));
             }
         }
 
         Ok(())
     }
 
-    fn uninstall_driver(&self, driver_type: &str, _file_prefix: &str) -> Result<(), InstallError> {
+    fn uninstall_driver(&self, driver_type: DriverType) -> Result<(), InstallError> {
         // Remove registry entries
         match driver_type {
-            "keyboard" => {
+            DriverType::Keyboard => {
                 self.registry
                     .uninstall_keyboard_service()
                     .map_err(InstallError::RegistryError)?;
             }
-            "mouse" => {
+            DriverType::Mouse => {
                 self.registry
                     .uninstall_mouse_service()
                     .map_err(InstallError::RegistryError)?;
             }
-            _ => {
-                return Err(InstallError::DriverNotFound(format!(
-                    "Unknown driver type: {driver_type}"
-                )));
-            }
         }
 
         // Remove driver file from system directory
-        let target_filename = format!("{driver_type}.sys");
+        let target_filename = format!("{}.sys", driver_type.service_name());
         let target_path = Path::new(DRIVERS_PATH).join(&target_filename);
 
         if target_path.exists() {
@@ -205,23 +228,6 @@ impl InterceptionInstaller {
         }
 
         Ok(())
-    }
-
-    fn get_embedded_driver(&self, filename: &str) -> Result<&'static [u8], InstallError> {
-        EMBEDDED_DRIVERS
-            .iter()
-            .find(|(name, _)| *name == filename)
-            .map(|(_, data)| *data)
-            .ok_or_else(|| {
-                InstallError::DriverNotFound(format!(
-                    "Driver file not found in embedded data: {filename}. Available drivers: {}",
-                    EMBEDDED_DRIVERS
-                        .iter()
-                        .map(|(name, _)| *name)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ))
-            })
     }
 
     fn format_version(&self, version: &crate::system::WindowsVersion) -> &'static str {
