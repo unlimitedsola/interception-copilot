@@ -66,12 +66,12 @@ impl RegistryManager {
                 HKEY_LOCAL_MACHINE,
                 service_key_wide.as_ptr(),
                 0,
-                ptr::null_mut(), // lpClass - can be null
-                0,               // dwOptions
+                ptr::null(), // lpClass - can be null (input parameter)
+                0,           // dwOptions
                 KEY_ALL_ACCESS,
-                ptr::null_mut(), // lpSecurityAttributes - can be null
+                ptr::null(), // lpSecurityAttributes - can be null (input parameter)
                 &mut key,
-                ptr::null_mut(), // lpdwDisposition - can be null
+                ptr::null_mut(), // lpdwDisposition - can be null (output parameter)
             );
 
             if result != ERROR_SUCCESS {
@@ -231,9 +231,9 @@ impl RegistryManager {
             let result = RegQueryValueExW(
                 key,
                 w!("UpperFilters"),
-                ptr::null_mut(),
+                ptr::null(), // lpReserved - must be null (input parameter)
                 &mut data_type,
-                ptr::null_mut(),
+                ptr::null_mut(), // lpData - can be null when querying size (output parameter)
                 &mut buffer_size,
             );
 
@@ -246,7 +246,7 @@ impl RegistryManager {
             let result = RegQueryValueExW(
                 key,
                 w!("UpperFilters"),
-                ptr::null_mut(),
+                ptr::null(), // lpReserved - must be null (input parameter)
                 &mut data_type,
                 buffer.as_mut_ptr(),
                 &mut buffer_size,

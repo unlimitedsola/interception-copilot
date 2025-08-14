@@ -21,6 +21,21 @@ pub enum Architecture {
     IA64,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum WindowsNTVersion {
+    NT51, // Windows XP
+    NT52, // Windows 2003
+    NT60, // Windows Vista
+    NT61, // Windows 7+
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ProcessorArchitecture {
+    X86,
+    A64,
+    I64,
+}
+
 #[derive(Debug)]
 pub struct SystemInfo {
     pub version: WindowsVersion,
@@ -38,23 +53,23 @@ impl SystemInfo {
         })
     }
 
-    pub fn get_driver_prefix(&self) -> &'static str {
+    pub fn get_driver_prefix(&self) -> WindowsNTVersion {
         match self.version {
-            WindowsVersion::WindowsXP => "51",
-            WindowsVersion::Windows2003 => "52",
-            WindowsVersion::WindowsVista => "60",
-            WindowsVersion::Windows7 => "61",
-            WindowsVersion::Windows8 => "61", // Use 61 (Windows 7) drivers for Windows 8+
-            WindowsVersion::Windows81 => "61", // Use 61 (Windows 7) drivers for Windows 8+
-            WindowsVersion::Windows10Plus => "61", // Use 61 (Windows 7) drivers for Windows 10+
+            WindowsVersion::WindowsXP => WindowsNTVersion::NT51,
+            WindowsVersion::Windows2003 => WindowsNTVersion::NT52,
+            WindowsVersion::WindowsVista => WindowsNTVersion::NT60,
+            WindowsVersion::Windows7 => WindowsNTVersion::NT61,
+            WindowsVersion::Windows8 => WindowsNTVersion::NT61, // Use NT61 (Windows 7) drivers for Windows 8+
+            WindowsVersion::Windows81 => WindowsNTVersion::NT61, // Use NT61 (Windows 7) drivers for Windows 8+
+            WindowsVersion::Windows10Plus => WindowsNTVersion::NT61, // Use NT61 (Windows 7) drivers for Windows 10+
         }
     }
 
-    pub fn get_architecture_suffix(&self) -> &'static str {
+    pub fn get_architecture_suffix(&self) -> ProcessorArchitecture {
         match self.architecture {
-            Architecture::X86 => "X86",
-            Architecture::AMD64 => "A64",
-            Architecture::IA64 => "I64",
+            Architecture::X86 => ProcessorArchitecture::X86,
+            Architecture::AMD64 => ProcessorArchitecture::A64,
+            Architecture::IA64 => ProcessorArchitecture::I64,
         }
     }
 }
