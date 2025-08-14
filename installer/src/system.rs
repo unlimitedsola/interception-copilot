@@ -44,8 +44,8 @@ impl SystemInfo {
             WindowsVersion::Windows2003 => "52",
             WindowsVersion::WindowsVista => "60",
             WindowsVersion::Windows7 => "61",
-            WindowsVersion::Windows8 => "62",
-            WindowsVersion::Windows81 => "63",
+            WindowsVersion::Windows8 => "61", // Use 61 (Windows 7) drivers for Windows 8+
+            WindowsVersion::Windows81 => "61", // Use 61 (Windows 7) drivers for Windows 8+
             WindowsVersion::Windows10Plus => "61", // Use 61 (Windows 7) drivers for Windows 10+
         }
     }
