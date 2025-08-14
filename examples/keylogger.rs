@@ -5,7 +5,7 @@
 //!
 //! **Note**: This requires the Interception driver to be installed on Windows.
 
-use interception::{Device, FILTER_KEY_ALL, Interception, KEY_UP, MAX_KEYBOARD};
+use interception::{Device, FILTER_KEY_ALL, Interception, KEY_UP};
 
 #[cfg(windows)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
