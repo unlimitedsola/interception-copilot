@@ -1,5 +1,5 @@
 use crate::registry::RegistryManager;
-use crate::system::SystemInfo;
+use crate::system::{ProcessorArchitecture, SystemInfo, WindowsNTVersion};
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -13,13 +13,6 @@ pub enum DriverType {
 }
 
 impl DriverType {
-    pub fn file_prefix(&self) -> &'static str {
-        match self {
-            DriverType::Keyboard => "KBDNT",
-            DriverType::Mouse => "MOUNT",
-        }
-    }
-
     pub fn service_name(&self) -> &'static str {
         match self {
             DriverType::Keyboard => "keyboard",
@@ -45,32 +38,72 @@ fn get_embedded_driver_data(
 
     let driver_data = match (driver_type, prefix, arch) {
         // Keyboard drivers
-        (DriverType::Keyboard, "51", "X86") => embed_driver!("KBDNT51X86.sys"),
-        (DriverType::Keyboard, "52", "A64") => embed_driver!("KBDNT52A64.sys"),
-        (DriverType::Keyboard, "52", "I64") => embed_driver!("KBDNT52I64.sys"),
-        (DriverType::Keyboard, "52", "X86") => embed_driver!("KBDNT52X86.sys"),
-        (DriverType::Keyboard, "60", "A64") => embed_driver!("KBDNT60A64.sys"),
-        (DriverType::Keyboard, "60", "I64") => embed_driver!("KBDNT60I64.sys"),
-        (DriverType::Keyboard, "60", "X86") => embed_driver!("KBDNT60X86.sys"),
-        (DriverType::Keyboard, "61", "A64") => embed_driver!("KBDNT61A64.sys"),
-        (DriverType::Keyboard, "61", "I64") => embed_driver!("KBDNT61I64.sys"),
-        (DriverType::Keyboard, "61", "X86") => embed_driver!("KBDNT61X86.sys"),
+        (DriverType::Keyboard, WindowsNTVersion::NT51, ProcessorArchitecture::X86) => {
+            embed_driver!("KBDNT51X86.sys")
+        }
+        (DriverType::Keyboard, WindowsNTVersion::NT52, ProcessorArchitecture::A64) => {
+            embed_driver!("KBDNT52A64.sys")
+        }
+        (DriverType::Keyboard, WindowsNTVersion::NT52, ProcessorArchitecture::I64) => {
+            embed_driver!("KBDNT52I64.sys")
+        }
+        (DriverType::Keyboard, WindowsNTVersion::NT52, ProcessorArchitecture::X86) => {
+            embed_driver!("KBDNT52X86.sys")
+        }
+        (DriverType::Keyboard, WindowsNTVersion::NT60, ProcessorArchitecture::A64) => {
+            embed_driver!("KBDNT60A64.sys")
+        }
+        (DriverType::Keyboard, WindowsNTVersion::NT60, ProcessorArchitecture::I64) => {
+            embed_driver!("KBDNT60I64.sys")
+        }
+        (DriverType::Keyboard, WindowsNTVersion::NT60, ProcessorArchitecture::X86) => {
+            embed_driver!("KBDNT60X86.sys")
+        }
+        (DriverType::Keyboard, WindowsNTVersion::NT61, ProcessorArchitecture::A64) => {
+            embed_driver!("KBDNT61A64.sys")
+        }
+        (DriverType::Keyboard, WindowsNTVersion::NT61, ProcessorArchitecture::I64) => {
+            embed_driver!("KBDNT61I64.sys")
+        }
+        (DriverType::Keyboard, WindowsNTVersion::NT61, ProcessorArchitecture::X86) => {
+            embed_driver!("KBDNT61X86.sys")
+        }
 
         // Mouse drivers
-        (DriverType::Mouse, "51", "X86") => embed_driver!("MOUNT51X86.sys"),
-        (DriverType::Mouse, "52", "A64") => embed_driver!("MOUNT52A64.sys"),
-        (DriverType::Mouse, "52", "I64") => embed_driver!("MOUNT52I64.sys"),
-        (DriverType::Mouse, "52", "X86") => embed_driver!("MOUNT52X86.sys"),
-        (DriverType::Mouse, "60", "A64") => embed_driver!("MOUNT60A64.sys"),
-        (DriverType::Mouse, "60", "I64") => embed_driver!("MOUNT60I64.sys"),
-        (DriverType::Mouse, "60", "X86") => embed_driver!("MOUNT60X86.sys"),
-        (DriverType::Mouse, "61", "A64") => embed_driver!("MOUNT61A64.sys"),
-        (DriverType::Mouse, "61", "I64") => embed_driver!("MOUNT61I64.sys"),
-        (DriverType::Mouse, "61", "X86") => embed_driver!("MOUNT61X86.sys"),
+        (DriverType::Mouse, WindowsNTVersion::NT51, ProcessorArchitecture::X86) => {
+            embed_driver!("MOUNT51X86.sys")
+        }
+        (DriverType::Mouse, WindowsNTVersion::NT52, ProcessorArchitecture::A64) => {
+            embed_driver!("MOUNT52A64.sys")
+        }
+        (DriverType::Mouse, WindowsNTVersion::NT52, ProcessorArchitecture::I64) => {
+            embed_driver!("MOUNT52I64.sys")
+        }
+        (DriverType::Mouse, WindowsNTVersion::NT52, ProcessorArchitecture::X86) => {
+            embed_driver!("MOUNT52X86.sys")
+        }
+        (DriverType::Mouse, WindowsNTVersion::NT60, ProcessorArchitecture::A64) => {
+            embed_driver!("MOUNT60A64.sys")
+        }
+        (DriverType::Mouse, WindowsNTVersion::NT60, ProcessorArchitecture::I64) => {
+            embed_driver!("MOUNT60I64.sys")
+        }
+        (DriverType::Mouse, WindowsNTVersion::NT60, ProcessorArchitecture::X86) => {
+            embed_driver!("MOUNT60X86.sys")
+        }
+        (DriverType::Mouse, WindowsNTVersion::NT61, ProcessorArchitecture::A64) => {
+            embed_driver!("MOUNT61A64.sys")
+        }
+        (DriverType::Mouse, WindowsNTVersion::NT61, ProcessorArchitecture::I64) => {
+            embed_driver!("MOUNT61I64.sys")
+        }
+        (DriverType::Mouse, WindowsNTVersion::NT61, ProcessorArchitecture::X86) => {
+            embed_driver!("MOUNT61X86.sys")
+        }
 
         _ => {
             return Err(InstallError::DriverNotFound(format!(
-                "No driver available for {driver_type:?} on Windows NT{prefix} {arch}"
+                "No driver available for {driver_type:?} on {prefix:?} {arch:?}"
             )));
         }
     };

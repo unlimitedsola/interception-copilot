@@ -154,6 +154,10 @@ The `interception-c` folder contains the source code for the original C project 
 - **MAINTAIN** same struct memory layout as C reference implementation
 - **FOLLOW** existing error handling patterns using `Result<T, InterceptionError>`
 - **NO BACKWARD COMPATIBILITY**: This library has not been released yet, so breaking changes are acceptable and backward compatibility is not maintained
+- **NULL POINTER USAGE**: Use `ptr::null()` for optional input parameters that can be null. Only use `ptr::null_mut()` for output parameters that need to be mutable. When in doubt:
+  - **Input parameters** (const pointers): Use `ptr::null()`
+  - **Output parameters** (mutable pointers): Use `ptr::null_mut()`
+  - **Reserved parameters** (must be null): Use `ptr::null()`
 
 ## Common Tasks Reference
 
