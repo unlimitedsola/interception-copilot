@@ -58,13 +58,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "DOWN"
                 };
                 println!(
-                    "Key {: >4}: {} (code: 0x{:02X}, state: 0x{:02X}, info: 0x{:08X}, device: {})",
-                    key_action,
+                    "{:02}: {:>3} {:<4} (code: 0x{:02X}, state: 0x{:02X}, info: 0x{:08X})",
+                    device_index,
                     stroke.code,
+                    key_action,
                     stroke.code,
                     stroke.state,
                     stroke.information,
-                    device_index
                 );
             }
 
