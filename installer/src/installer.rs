@@ -1,5 +1,5 @@
 use crate::registry::RegistryManager;
-use crate::system::{ProcessorArchitecture, SystemInfo, WindowsNTVersion};
+use crate::system::{Architecture, SystemInfo, WindowsNTVersion};
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -15,8 +15,8 @@ pub enum DriverType {
 impl DriverType {
     pub fn service_name(&self) -> &'static str {
         match self {
-            DriverType::Keyboard => "keyboard",
-            DriverType::Mouse => "mouse",
+            Self::Keyboard => "keyboard",
+            Self::Mouse => "mouse",
         }
     }
 }
@@ -24,79 +24,42 @@ impl DriverType {
 // Embedded driver files organized by type and system parameters
 macro_rules! embed_driver {
     ($name:literal) => {
-        include_bytes!(concat!("../drivers/", $name)) as &'static [u8]
+        include_bytes!(concat!("../drivers/", $name, ".sys")).as_slice()
     };
 }
 
-// Direct access to embedded drivers based on system parameters
 fn get_embedded_driver_data(
     driver_type: DriverType,
     system_info: &SystemInfo,
 ) -> Result<&'static [u8], InstallError> {
-    let driver_data = match (driver_type, system_info.version, system_info.architecture) {
+    let driver_data = match (
+        driver_type,
+        (system_info.version.major, system_info.version.minor),
+        system_info.architecture,
+    ) {
         // Keyboard drivers
-        (DriverType::Keyboard, WindowsNTVersion::NT51, ProcessorArchitecture::X86) => {
-            embed_driver!("KBDNT51X86.sys")
-        }
-        (DriverType::Keyboard, WindowsNTVersion::NT52, ProcessorArchitecture::A64) => {
-            embed_driver!("KBDNT52A64.sys")
-        }
-        (DriverType::Keyboard, WindowsNTVersion::NT52, ProcessorArchitecture::I64) => {
-            embed_driver!("KBDNT52I64.sys")
-        }
-        (DriverType::Keyboard, WindowsNTVersion::NT52, ProcessorArchitecture::X86) => {
-            embed_driver!("KBDNT52X86.sys")
-        }
-        (DriverType::Keyboard, WindowsNTVersion::NT60, ProcessorArchitecture::A64) => {
-            embed_driver!("KBDNT60A64.sys")
-        }
-        (DriverType::Keyboard, WindowsNTVersion::NT60, ProcessorArchitecture::I64) => {
-            embed_driver!("KBDNT60I64.sys")
-        }
-        (DriverType::Keyboard, WindowsNTVersion::NT60, ProcessorArchitecture::X86) => {
-            embed_driver!("KBDNT60X86.sys")
-        }
-        (DriverType::Keyboard, WindowsNTVersion::NT61, ProcessorArchitecture::A64) => {
-            embed_driver!("KBDNT61A64.sys")
-        }
-        (DriverType::Keyboard, WindowsNTVersion::NT61, ProcessorArchitecture::I64) => {
-            embed_driver!("KBDNT61I64.sys")
-        }
-        (DriverType::Keyboard, WindowsNTVersion::NT61, ProcessorArchitecture::X86) => {
-            embed_driver!("KBDNT61X86.sys")
-        }
+        (DriverType::Keyboard, (5, 1), Architecture::X86) => embed_driver!("KBDNT51X86"),
+        (DriverType::Keyboard, (5, 2), Architecture::AMD64) => embed_driver!("KBDNT52A64"),
+        (DriverType::Keyboard, (5, 2), Architecture::IA64) => embed_driver!("KBDNT52I64"),
+        (DriverType::Keyboard, (5, 2), Architecture::X86) => embed_driver!("KBDNT52X86"),
+        (DriverType::Keyboard, (6, 0), Architecture::AMD64) => embed_driver!("KBDNT60A64"),
+        (DriverType::Keyboard, (6, 0), Architecture::IA64) => embed_driver!("KBDNT60I64"),
+        (DriverType::Keyboard, (6, 0), Architecture::X86) => embed_driver!("KBDNT60X86"),
+        (DriverType::Keyboard, (6, 1), Architecture::AMD64) => embed_driver!("KBDNT61A64"),
+        (DriverType::Keyboard, (6, 1), Architecture::IA64) => embed_driver!("KBDNT61I64"),
+        (DriverType::Keyboard, (6, 1), Architecture::X86) => embed_driver!("KBDNT61X86"),
 
         // Mouse drivers
-        (DriverType::Mouse, WindowsNTVersion::NT51, ProcessorArchitecture::X86) => {
-            embed_driver!("MOUNT51X86.sys")
-        }
-        (DriverType::Mouse, WindowsNTVersion::NT52, ProcessorArchitecture::A64) => {
-            embed_driver!("MOUNT52A64.sys")
-        }
-        (DriverType::Mouse, WindowsNTVersion::NT52, ProcessorArchitecture::I64) => {
-            embed_driver!("MOUNT52I64.sys")
-        }
-        (DriverType::Mouse, WindowsNTVersion::NT52, ProcessorArchitecture::X86) => {
-            embed_driver!("MOUNT52X86.sys")
-        }
-        (DriverType::Mouse, WindowsNTVersion::NT60, ProcessorArchitecture::A64) => {
-            embed_driver!("MOUNT60A64.sys")
-        }
-        (DriverType::Mouse, WindowsNTVersion::NT60, ProcessorArchitecture::I64) => {
-            embed_driver!("MOUNT60I64.sys")
-        }
-        (DriverType::Mouse, WindowsNTVersion::NT60, ProcessorArchitecture::X86) => {
-            embed_driver!("MOUNT60X86.sys")
-        }
-        (DriverType::Mouse, WindowsNTVersion::NT61, ProcessorArchitecture::A64) => {
-            embed_driver!("MOUNT61A64.sys")
-        }
-        (DriverType::Mouse, WindowsNTVersion::NT61, ProcessorArchitecture::I64) => {
-            embed_driver!("MOUNT61I64.sys")
-        }
-        (DriverType::Mouse, WindowsNTVersion::NT61, ProcessorArchitecture::X86) => {
-            embed_driver!("MOUNT61X86.sys")
-        }
+        (DriverType::Mouse, (5, 1), Architecture::X86) => embed_driver!("MOUNT51X86"),
+        (DriverType::Mouse, (5, 2), Architecture::AMD64) => embed_driver!("MOUNT52A64"),
+        (DriverType::Mouse, (5, 2), Architecture::IA64) => embed_driver!("MOUNT52I64"),
+        (DriverType::Mouse, (5, 2), Architecture::X86) => embed_driver!("MOUNT52X86"),
+        (DriverType::Mouse, (6, 0), Architecture::AMD64) => embed_driver!("MOUNT60A64"),
+        (DriverType::Mouse, (6, 0), Architecture::IA64) => embed_driver!("MOUNT60I64"),
+        (DriverType::Mouse, (6, 0), Architecture::X86) => embed_driver!("MOUNT60X86"),
+        (DriverType::Mouse, (6, 1), Architecture::AMD64) => embed_driver!("MOUNT61A64"),
+        (DriverType::Mouse, (6, 1), Architecture::IA64) => embed_driver!("MOUNT61I64"),
+        (DriverType::Mouse, (6, 1), Architecture::X86) => embed_driver!("MOUNT61X86"),
 
         _ => {
             return Err(InstallError::DriverNotFound(format!(
@@ -162,12 +125,6 @@ impl InterceptionInstaller {
         println!("Detecting system configuration...");
         let system_info = SystemInfo::detect().map_err(InstallError::SystemDetectionFailed)?;
 
-        println!(
-            "System: Windows {} - {}",
-            self.format_version(&system_info.version),
-            self.format_architecture(&system_info.architecture)
-        );
-
         // Install keyboard driver
         println!("Installing keyboard driver...");
         self.install_driver(&system_info, DriverType::Keyboard)?;
@@ -216,18 +173,15 @@ impl InterceptionInstaller {
         // Write driver file to system directory
         fs::write(&target_path, driver_data)?;
 
-        // Set up registry entries
-        let driver_path = format!(r"\SystemRoot\system32\drivers\{target_filename}");
-
         match driver_type {
             DriverType::Keyboard => {
                 self.registry
-                    .install_keyboard_service(&driver_path)
+                    .install_keyboard_service()
                     .map_err(InstallError::RegistryError)?;
             }
             DriverType::Mouse => {
                 self.registry
-                    .install_mouse_service(&driver_path)
+                    .install_mouse_service()
                     .map_err(InstallError::RegistryError)?;
             }
         }
@@ -259,25 +213,5 @@ impl InterceptionInstaller {
         }
 
         Ok(())
-    }
-
-    fn format_version(&self, version: &crate::system::WindowsNTVersion) -> &'static str {
-        match version {
-            crate::system::WindowsNTVersion::NT51 => "XP",
-            crate::system::WindowsNTVersion::NT52 => "Server 2003",
-            crate::system::WindowsNTVersion::NT60 => "Vista",
-            crate::system::WindowsNTVersion::NT61 => "7/8/8.1/10/11",
-        }
-    }
-
-    fn format_architecture(
-        &self,
-        architecture: &crate::system::ProcessorArchitecture,
-    ) -> &'static str {
-        match architecture {
-            crate::system::ProcessorArchitecture::X86 => "x86 (32-bit)",
-            crate::system::ProcessorArchitecture::A64 => "x64 (64-bit)",
-            crate::system::ProcessorArchitecture::I64 => "IA-64",
-        }
     }
 }

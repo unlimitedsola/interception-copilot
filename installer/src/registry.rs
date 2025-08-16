@@ -5,13 +5,14 @@ use windows_sys::Win32::System::Registry::{
     RegCreateKeyExW, RegDeleteKeyW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW,
     RegSetValueExW,
 };
+use windows_sys::core::PCWSTR;
 use windows_sys::w;
 
 const SERVICES_KEY: &str = r"SYSTEM\CurrentControlSet\Services";
-const KEYBOARD_CLASS_KEY: &str =
-    r"SYSTEM\CurrentControlSet\Control\Class\{4d36e96b-e325-11ce-bfc1-08002be10318}";
-const MOUSE_CLASS_KEY: &str =
-    r"SYSTEM\CurrentControlSet\Control\Class\{4d36e96f-e325-11ce-bfc1-08002be10318}";
+const KEYBOARD_CLASS_KEY: PCWSTR =
+    w!(r"SYSTEM\CurrentControlSet\Control\Class\{4d36e96b-e325-11ce-bfc1-08002be10318}");
+const MOUSE_CLASS_KEY: PCWSTR =
+    w!(r"SYSTEM\CurrentControlSet\Control\Class\{4d36e96f-e325-11ce-bfc1-08002be10318}");
 
 pub struct RegistryManager;
 
@@ -26,14 +27,14 @@ impl RegistryManager {
         Self
     }
 
-    pub fn install_keyboard_service(&self, driver_path: &str) -> Result<(), String> {
-        self.create_service("keyboard", "Keyboard Upper Filter Driver", driver_path)?;
+    pub fn install_keyboard_service(&self) -> Result<(), String> {
+        self.create_service("keyboard", "Keyboard Upper Filter Driver")?;
         self.add_class_filter(KEYBOARD_CLASS_KEY, "keyboard")?;
         Ok(())
     }
 
-    pub fn install_mouse_service(&self, driver_path: &str) -> Result<(), String> {
-        self.create_service("mouse", "Mouse Upper Filter Driver", driver_path)?;
+    pub fn install_mouse_service(&self) -> Result<(), String> {
+        self.create_service("mouse", "Mouse Upper Filter Driver")?;
         self.add_class_filter(MOUSE_CLASS_KEY, "mouse")?;
         Ok(())
     }
@@ -50,12 +51,7 @@ impl RegistryManager {
         Ok(())
     }
 
-    fn create_service(
-        &self,
-        service_name: &str,
-        display_name: &str,
-        driver_path: &str,
-    ) -> Result<(), String> {
+    fn create_service(&self, service_name: &str, display_name: &str) -> Result<(), String> {
         let service_key = format!("{SERVICES_KEY}\\{service_name}");
 
         unsafe {
@@ -122,17 +118,6 @@ impl RegistryManager {
                 4,
             );
 
-            // Set ImagePath
-            let image_path_wide = to_wide_string(driver_path);
-            RegSetValueExW(
-                key,
-                w!("ImagePath"),
-                0,
-                REG_SZ,
-                image_path_wide.as_ptr() as *const u8,
-                (image_path_wide.len() * 2) as u32,
-            );
-
             RegCloseKey(key);
         }
 
@@ -154,18 +139,11 @@ impl RegistryManager {
         Ok(())
     }
 
-    fn add_class_filter(&self, class_key: &str, filter_name: &str) -> Result<(), String> {
+    fn add_class_filter(&self, class_key: PCWSTR, filter_name: &str) -> Result<(), String> {
         unsafe {
             let mut key: HKEY = ptr::null_mut();
-            let class_key_wide = to_wide_string(class_key);
 
-            let result = RegOpenKeyExW(
-                HKEY_LOCAL_MACHINE,
-                class_key_wide.as_ptr(),
-                0,
-                KEY_ALL_ACCESS,
-                &mut key,
-            );
+            let result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, class_key, 0, KEY_ALL_ACCESS, &mut key);
 
             if result != ERROR_SUCCESS {
                 return Err(format!("Failed to open class key: {result}"));
@@ -186,18 +164,11 @@ impl RegistryManager {
         Ok(())
     }
 
-    fn remove_class_filter(&self, class_key: &str, filter_name: &str) -> Result<(), String> {
+    fn remove_class_filter(&self, class_key: PCWSTR, filter_name: &str) -> Result<(), String> {
         unsafe {
             let mut key: HKEY = ptr::null_mut();
-            let class_key_wide = to_wide_string(class_key);
 
-            let result = RegOpenKeyExW(
-                HKEY_LOCAL_MACHINE,
-                class_key_wide.as_ptr(),
-                0,
-                KEY_ALL_ACCESS,
-                &mut key,
-            );
+            let result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, class_key, 0, KEY_ALL_ACCESS, &mut key);
 
             if result != ERROR_SUCCESS {
                 return Err(format!("Failed to open class key: {result}"));

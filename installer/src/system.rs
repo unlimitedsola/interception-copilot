@@ -1,27 +1,26 @@
 use windows_sys::Win32::Foundation::FALSE;
 use windows_sys::Win32::System::SystemInformation::{
-    GetSystemInfo, GetVersionExW, OSVERSIONINFOW, SYSTEM_INFO,
+    GetSystemInfo, GetVersionExW, OSVERSIONINFOW, PROCESSOR_ARCHITECTURE_AMD64,
+    PROCESSOR_ARCHITECTURE_IA64, PROCESSOR_ARCHITECTURE_INTEL, SYSTEM_INFO,
 };
 
 #[derive(Debug, Clone, Copy)]
-pub enum WindowsNTVersion {
-    NT51, // Windows XP
-    NT52, // Windows 2003
-    NT60, // Windows Vista
-    NT61, // Windows 7+
+pub struct WindowsNTVersion {
+    pub major: u32,
+    pub minor: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum ProcessorArchitecture {
+pub enum Architecture {
     X86,
-    A64,
-    I64,
+    AMD64,
+    IA64,
 }
 
 #[derive(Debug)]
 pub struct SystemInfo {
     pub version: WindowsNTVersion,
-    pub architecture: ProcessorArchitecture,
+    pub architecture: Architecture,
 }
 
 impl SystemInfo {
@@ -39,46 +38,30 @@ impl SystemInfo {
 fn get_windows_version() -> Result<WindowsNTVersion, String> {
     unsafe {
         let mut version_info = OSVERSIONINFOW {
-            dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
-            dwMajorVersion: 0,
-            dwMinorVersion: 0,
-            dwBuildNumber: 0,
-            dwPlatformId: 0,
-            szCSDVersion: [0; 128],
+            dwOSVersionInfoSize: size_of::<OSVERSIONINFOW>() as u32,
+            ..Default::default()
         };
 
         if GetVersionExW(&mut version_info) == FALSE {
             return Err("Failed to get Windows version".to_string());
         }
 
-        let version = match (version_info.dwMajorVersion, version_info.dwMinorVersion) {
-            (5, 1) => WindowsNTVersion::NT51,  // Windows XP
-            (5, 2) => WindowsNTVersion::NT52,  // Windows 2003
-            (6, 0) => WindowsNTVersion::NT60,  // Windows Vista
-            (6, 1) => WindowsNTVersion::NT61,  // Windows 7
-            (6, 2) => WindowsNTVersion::NT61,  // Windows 8 - use NT61 drivers
-            (6, 3) => WindowsNTVersion::NT61,  // Windows 8.1 - use NT61 drivers
-            (10, _) => WindowsNTVersion::NT61, // Windows 10+ - use NT61 drivers
-            _ => WindowsNTVersion::NT61,       // Default to NT61 for unknown versions
-        };
-
-        Ok(version)
+        Ok(WindowsNTVersion {
+            major: version_info.dwMajorVersion,
+            minor: version_info.dwMinorVersion,
+        })
     }
 }
 
-fn get_architecture() -> Result<ProcessorArchitecture, String> {
+fn get_architecture() -> Result<Architecture, String> {
     unsafe {
-        let mut system_info = std::mem::zeroed::<SYSTEM_INFO>();
+        let mut system_info = SYSTEM_INFO::default();
         GetSystemInfo(&mut system_info);
 
-        const PROCESSOR_ARCHITECTURE_INTEL: u16 = 0;
-        const PROCESSOR_ARCHITECTURE_AMD64: u16 = 9;
-        const PROCESSOR_ARCHITECTURE_IA64: u16 = 6;
-
         let architecture = match system_info.Anonymous.Anonymous.wProcessorArchitecture {
-            PROCESSOR_ARCHITECTURE_INTEL => ProcessorArchitecture::X86,
-            PROCESSOR_ARCHITECTURE_AMD64 => ProcessorArchitecture::A64,
-            PROCESSOR_ARCHITECTURE_IA64 => ProcessorArchitecture::I64,
+            PROCESSOR_ARCHITECTURE_INTEL => Architecture::X86,
+            PROCESSOR_ARCHITECTURE_AMD64 => Architecture::AMD64,
+            PROCESSOR_ARCHITECTURE_IA64 => Architecture::IA64,
             _ => return Err("Unsupported processor architecture".to_string()),
         };
 
