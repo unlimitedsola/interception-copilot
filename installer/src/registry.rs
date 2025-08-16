@@ -1,3 +1,4 @@
+use crate::installer::DriverType;
 use std::ptr;
 use windows_sys::Win32::Foundation::ERROR_SUCCESS;
 use windows_sys::Win32::System::Registry::{
@@ -9,9 +10,9 @@ use windows_sys::core::PCWSTR;
 use windows_sys::w;
 
 const SERVICES_KEY: &str = r"SYSTEM\CurrentControlSet\Services";
-const KEYBOARD_CLASS_KEY: PCWSTR =
+pub const KEYBOARD_CLASS_KEY: PCWSTR =
     w!(r"SYSTEM\CurrentControlSet\Control\Class\{4d36e96b-e325-11ce-bfc1-08002be10318}");
-const MOUSE_CLASS_KEY: PCWSTR =
+pub const MOUSE_CLASS_KEY: PCWSTR =
     w!(r"SYSTEM\CurrentControlSet\Control\Class\{4d36e96f-e325-11ce-bfc1-08002be10318}");
 
 pub struct RegistryManager;
@@ -27,27 +28,17 @@ impl RegistryManager {
         Self
     }
 
-    pub fn install_keyboard_service(&self) -> Result<(), String> {
-        self.create_service("keyboard", "Keyboard Upper Filter Driver")?;
-        self.add_class_filter(KEYBOARD_CLASS_KEY, "keyboard")?;
+    /// Install a service for the specified driver type
+    pub fn install_service(&self, driver_type: DriverType) -> Result<(), String> {
+        self.create_service(driver_type.service_name(), driver_type.display_name())?;
+        self.add_class_filter(*driver_type.class_key(), driver_type.service_name())?;
         Ok(())
     }
 
-    pub fn install_mouse_service(&self) -> Result<(), String> {
-        self.create_service("mouse", "Mouse Upper Filter Driver")?;
-        self.add_class_filter(MOUSE_CLASS_KEY, "mouse")?;
-        Ok(())
-    }
-
-    pub fn uninstall_keyboard_service(&self) -> Result<(), String> {
-        self.remove_class_filter(KEYBOARD_CLASS_KEY, "keyboard")?;
-        self.delete_service("keyboard")?;
-        Ok(())
-    }
-
-    pub fn uninstall_mouse_service(&self) -> Result<(), String> {
-        self.remove_class_filter(MOUSE_CLASS_KEY, "mouse")?;
-        self.delete_service("mouse")?;
+    /// Uninstall a service for the specified driver type
+    pub fn uninstall_service(&self, driver_type: DriverType) -> Result<(), String> {
+        self.remove_class_filter(*driver_type.class_key(), driver_type.service_name())?;
+        self.delete_service(driver_type.service_name())?;
         Ok(())
     }
 
@@ -238,10 +229,10 @@ impl RegistryManager {
                 if ch == 0 {
                     if i > start {
                         let filter_slice = &wide_slice[start..i];
-                        if let Ok(filter) = String::from_utf16(filter_slice) {
-                            if !filter.is_empty() {
-                                filters.push(filter);
-                            }
+                        if let Ok(filter) = String::from_utf16(filter_slice)
+                            && !filter.is_empty()
+                        {
+                            filters.push(filter);
                         }
                     }
                     start = i + 1;

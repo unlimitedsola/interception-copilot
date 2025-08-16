@@ -1,5 +1,5 @@
 use crate::registry::RegistryManager;
-use crate::system::{Architecture, SystemInfo, WindowsNTVersion};
+use crate::system::{Architecture, SystemInfo};
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -12,11 +12,28 @@ pub enum DriverType {
     Mouse,
 }
 
+/// All available driver types for iteration
+pub const ALL_DRIVER_TYPES: &[DriverType] = &[DriverType::Keyboard, DriverType::Mouse];
+
 impl DriverType {
     pub fn service_name(&self) -> &'static str {
         match self {
             Self::Keyboard => "keyboard",
             Self::Mouse => "mouse",
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Keyboard => "Keyboard Upper Filter Driver",
+            Self::Mouse => "Mouse Upper Filter Driver",
+        }
+    }
+
+    pub fn class_key(&self) -> &'static windows_sys::core::PCWSTR {
+        match self {
+            Self::Keyboard => &crate::registry::KEYBOARD_CLASS_KEY,
+            Self::Mouse => &crate::registry::MOUSE_CLASS_KEY,
         }
     }
 }
@@ -125,13 +142,11 @@ impl InterceptionInstaller {
         println!("Detecting system configuration...");
         let system_info = SystemInfo::detect().map_err(InstallError::SystemDetectionFailed)?;
 
-        // Install keyboard driver
-        println!("Installing keyboard driver...");
-        self.install_driver(&system_info, DriverType::Keyboard)?;
-
-        // Install mouse driver
-        println!("Installing mouse driver...");
-        self.install_driver(&system_info, DriverType::Mouse)?;
+        // Install all drivers
+        for &driver_type in ALL_DRIVER_TYPES {
+            println!("Installing {} driver...", driver_type.service_name());
+            self.install_driver(&system_info, driver_type)?;
+        }
 
         println!("Driver installation completed successfully.");
         println!();
@@ -143,13 +158,11 @@ impl InterceptionInstaller {
     pub fn uninstall(&self) -> Result<(), InstallError> {
         println!("Uninstalling Interception drivers...");
 
-        // Uninstall keyboard driver
-        println!("Removing keyboard driver...");
-        self.uninstall_driver(DriverType::Keyboard)?;
-
-        // Uninstall mouse driver
-        println!("Removing mouse driver...");
-        self.uninstall_driver(DriverType::Mouse)?;
+        // Uninstall all drivers
+        for &driver_type in ALL_DRIVER_TYPES {
+            println!("Removing {} driver...", driver_type.service_name());
+            self.uninstall_driver(driver_type)?;
+        }
 
         println!("Driver uninstallation completed successfully.");
         println!();
@@ -173,36 +186,19 @@ impl InterceptionInstaller {
         // Write driver file to system directory
         fs::write(&target_path, driver_data)?;
 
-        match driver_type {
-            DriverType::Keyboard => {
-                self.registry
-                    .install_keyboard_service()
-                    .map_err(InstallError::RegistryError)?;
-            }
-            DriverType::Mouse => {
-                self.registry
-                    .install_mouse_service()
-                    .map_err(InstallError::RegistryError)?;
-            }
-        }
+        // Install registry service using the unified method
+        self.registry
+            .install_service(driver_type)
+            .map_err(InstallError::RegistryError)?;
 
         Ok(())
     }
 
     fn uninstall_driver(&self, driver_type: DriverType) -> Result<(), InstallError> {
-        // Remove registry entries
-        match driver_type {
-            DriverType::Keyboard => {
-                self.registry
-                    .uninstall_keyboard_service()
-                    .map_err(InstallError::RegistryError)?;
-            }
-            DriverType::Mouse => {
-                self.registry
-                    .uninstall_mouse_service()
-                    .map_err(InstallError::RegistryError)?;
-            }
-        }
+        // Remove registry entries using the unified method
+        self.registry
+            .uninstall_service(driver_type)
+            .map_err(InstallError::RegistryError)?;
 
         // Remove driver file from system directory
         let target_filename = format!("{}.sys", driver_type.service_name());
