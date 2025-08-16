@@ -6,9 +6,12 @@ use std::path::Path;
 
 const DRIVERS_PATH: &str = r"C:\Windows\System32\drivers";
 
+/// Represents the type of input device driver
 #[derive(Debug, Clone, Copy)]
 pub enum DriverType {
+    /// Keyboard input driver
     Keyboard,
+    /// Mouse input driver
     Mouse,
 }
 
@@ -16,6 +19,7 @@ pub enum DriverType {
 pub const ALL_DRIVER_TYPES: &[DriverType] = &[DriverType::Keyboard, DriverType::Mouse];
 
 impl DriverType {
+    /// Returns the service name used in the Windows registry
     pub fn service_name(&self) -> &'static str {
         match self {
             Self::Keyboard => "keyboard",
@@ -23,6 +27,7 @@ impl DriverType {
         }
     }
 
+    /// Returns the display name shown in Windows services
     pub fn display_name(&self) -> &'static str {
         match self {
             Self::Keyboard => "Keyboard Upper Filter Driver",
@@ -30,6 +35,7 @@ impl DriverType {
         }
     }
 
+    /// Returns the Windows registry class key for this driver type
     pub fn class_key(&self) -> &'static windows_sys::core::PCWSTR {
         match self {
             Self::Keyboard => &crate::registry::KEYBOARD_CLASS_KEY,
@@ -95,7 +101,6 @@ pub enum InstallError {
     IoError(io::Error),
     RegistryError(String),
     DriverNotFound(String),
-    #[allow(dead_code)]
     PermissionDenied,
 }
 
@@ -115,12 +120,25 @@ impl std::fmt::Display for InstallError {
     }
 }
 
+impl std::error::Error for InstallError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            InstallError::IoError(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
 impl From<io::Error> for InstallError {
     fn from(err: io::Error) -> Self {
         InstallError::IoError(err)
     }
 }
 
+/// Manages the installation and uninstallation of Interception drivers
+///
+/// This struct handles system detection, driver file management, and registry
+/// configuration for both keyboard and mouse drivers.
 pub struct InterceptionInstaller {
     registry: RegistryManager,
 }
@@ -132,12 +150,21 @@ impl Default for InterceptionInstaller {
 }
 
 impl InterceptionInstaller {
+    /// Create a new installer instance
     pub fn new() -> Self {
         Self {
             registry: RegistryManager::new(),
         }
     }
 
+    /// Install all Interception drivers
+    ///
+    /// This will:
+    /// 1. Detect the system configuration (Windows version and architecture)
+    /// 2. Install both keyboard and mouse drivers
+    /// 3. Configure registry entries and class filters
+    ///
+    /// Returns an error if any step fails. A system reboot is required after successful installation.
     pub fn install(&self) -> Result<(), InstallError> {
         println!("Detecting system configuration...");
         let system_info = SystemInfo::detect().map_err(InstallError::SystemDetectionFailed)?;
@@ -155,6 +182,13 @@ impl InterceptionInstaller {
         Ok(())
     }
 
+    /// Uninstall all Interception drivers
+    ///
+    /// This will:
+    /// 1. Remove registry entries and class filters for both keyboard and mouse
+    /// 2. Delete driver files from the system directory
+    ///
+    /// Returns an error if any step fails. A system reboot is required after successful uninstallation.
     pub fn uninstall(&self) -> Result<(), InstallError> {
         println!("Uninstalling Interception drivers...");
 

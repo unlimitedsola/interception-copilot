@@ -1,3 +1,4 @@
+use std::mem::size_of;
 use windows_sys::Win32::Foundation::FALSE;
 use windows_sys::Win32::System::SystemInformation::{
     GetSystemInfo, GetVersionExW, OSVERSIONINFOW, PROCESSOR_ARCHITECTURE_AMD64,
