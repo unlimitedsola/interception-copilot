@@ -1,4 +1,4 @@
-use crate::registry::RegistryManager;
+use crate::registry;
 use crate::system::{Architecture, SystemInfo};
 use std::fs;
 use std::io;
@@ -135,113 +135,82 @@ impl From<io::Error> for InstallError {
     }
 }
 
-/// Manages the installation and uninstallation of Interception drivers
+/// Install all Interception drivers
 ///
-/// This struct handles system detection, driver file management, and registry
-/// configuration for both keyboard and mouse drivers.
-pub struct InterceptionInstaller {
-    registry: RegistryManager,
+/// This will:
+/// 1. Detect the system configuration (Windows version and architecture)
+/// 2. Install both keyboard and mouse drivers
+/// 3. Configure registry entries and class filters
+///
+/// Returns an error if any step fails. A system reboot is required after successful installation.
+pub fn install() -> Result<(), InstallError> {
+    println!("Detecting system configuration...");
+    let system_info = SystemInfo::detect().map_err(InstallError::SystemDetectionFailed)?;
+
+    // Install all drivers
+    for &driver_type in ALL_DRIVER_TYPES {
+        println!("Installing {} driver...", driver_type.service_name());
+        install_driver(&system_info, driver_type)?;
+    }
+
+    println!("Driver installation completed successfully.");
+    println!();
+    println!("IMPORTANT: You must reboot your system for the drivers to take effect.");
+
+    Ok(())
 }
 
-impl Default for InterceptionInstaller {
-    fn default() -> Self {
-        Self::new()
+/// Uninstall all Interception drivers
+///
+/// This will:
+/// 1. Remove registry entries and class filters for both keyboard and mouse
+/// 2. Delete driver files from the system directory
+///
+/// Returns an error if any step fails. A system reboot is required after successful uninstallation.
+pub fn uninstall() -> Result<(), InstallError> {
+    println!("Uninstalling Interception drivers...");
+
+    // Uninstall all drivers
+    for &driver_type in ALL_DRIVER_TYPES {
+        println!("Removing {} driver...", driver_type.service_name());
+        uninstall_driver(driver_type)?;
     }
+
+    println!("Driver uninstallation completed successfully.");
+    println!();
+    println!("IMPORTANT: You must reboot your system for the changes to take effect.");
+
+    Ok(())
 }
 
-impl InterceptionInstaller {
-    /// Create a new installer instance
-    pub fn new() -> Self {
-        Self {
-            registry: RegistryManager::new(),
-        }
+fn install_driver(system_info: &SystemInfo, driver_type: DriverType) -> Result<(), InstallError> {
+    // Get embedded driver data directly
+    let driver_data = get_embedded_driver_data(driver_type, system_info)?;
+
+    // Target filename and path
+    let target_filename = format!("{}.sys", driver_type.service_name());
+    let target_path = Path::new(DRIVERS_PATH).join(&target_filename);
+
+    // Write driver file to system directory
+    fs::write(&target_path, driver_data)?;
+
+    // Install registry service using the function-based API
+    registry::install_service(driver_type).map_err(InstallError::RegistryError)?;
+
+    Ok(())
+}
+
+fn uninstall_driver(driver_type: DriverType) -> Result<(), InstallError> {
+    // Remove registry entries using the function-based API
+    registry::uninstall_service(driver_type).map_err(InstallError::RegistryError)?;
+
+    // Remove driver file from system directory
+    let target_filename = format!("{}.sys", driver_type.service_name());
+    let target_path = Path::new(DRIVERS_PATH).join(&target_filename);
+
+    if target_path.exists() {
+        fs::remove_file(&target_path)?;
     }
 
-    /// Install all Interception drivers
-    ///
-    /// This will:
-    /// 1. Detect the system configuration (Windows version and architecture)
-    /// 2. Install both keyboard and mouse drivers
-    /// 3. Configure registry entries and class filters
-    ///
-    /// Returns an error if any step fails. A system reboot is required after successful installation.
-    pub fn install(&self) -> Result<(), InstallError> {
-        println!("Detecting system configuration...");
-        let system_info = SystemInfo::detect().map_err(InstallError::SystemDetectionFailed)?;
-
-        // Install all drivers
-        for &driver_type in ALL_DRIVER_TYPES {
-            println!("Installing {} driver...", driver_type.service_name());
-            self.install_driver(&system_info, driver_type)?;
-        }
-
-        println!("Driver installation completed successfully.");
-        println!();
-        println!("IMPORTANT: You must reboot your system for the drivers to take effect.");
-
-        Ok(())
-    }
-
-    /// Uninstall all Interception drivers
-    ///
-    /// This will:
-    /// 1. Remove registry entries and class filters for both keyboard and mouse
-    /// 2. Delete driver files from the system directory
-    ///
-    /// Returns an error if any step fails. A system reboot is required after successful uninstallation.
-    pub fn uninstall(&self) -> Result<(), InstallError> {
-        println!("Uninstalling Interception drivers...");
-
-        // Uninstall all drivers
-        for &driver_type in ALL_DRIVER_TYPES {
-            println!("Removing {} driver...", driver_type.service_name());
-            self.uninstall_driver(driver_type)?;
-        }
-
-        println!("Driver uninstallation completed successfully.");
-        println!();
-        println!("IMPORTANT: You must reboot your system for the changes to take effect.");
-
-        Ok(())
-    }
-
-    fn install_driver(
-        &self,
-        system_info: &SystemInfo,
-        driver_type: DriverType,
-    ) -> Result<(), InstallError> {
-        // Get embedded driver data directly
-        let driver_data = get_embedded_driver_data(driver_type, system_info)?;
-
-        // Target filename and path
-        let target_filename = format!("{}.sys", driver_type.service_name());
-        let target_path = Path::new(DRIVERS_PATH).join(&target_filename);
-
-        // Write driver file to system directory
-        fs::write(&target_path, driver_data)?;
-
-        // Install registry service using the unified method
-        self.registry
-            .install_service(driver_type)
-            .map_err(InstallError::RegistryError)?;
-
-        Ok(())
-    }
-
-    fn uninstall_driver(&self, driver_type: DriverType) -> Result<(), InstallError> {
-        // Remove registry entries using the unified method
-        self.registry
-            .uninstall_service(driver_type)
-            .map_err(InstallError::RegistryError)?;
-
-        // Remove driver file from system directory
-        let target_filename = format!("{}.sys", driver_type.service_name());
-        let target_path = Path::new(DRIVERS_PATH).join(&target_filename);
-
-        if target_path.exists() {
-            fs::remove_file(&target_path)?;
-        }
-
-        Ok(())
-    }
+    Ok(())
 }
