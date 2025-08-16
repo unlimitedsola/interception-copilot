@@ -80,11 +80,11 @@ cargo build --target x86_64-pc-windows-gnu --examples
 **ALWAYS** run these commands before finalizing changes. **NEVER CANCEL** any of them:
 
 ```bash
-# Format check - takes <1 second
-cargo fmt --all -- --check
-
 # Linting - takes ~1.5 seconds, NEVER CANCEL, set timeout to 60+ seconds
 cargo clippy --target x86_64-pc-windows-gnu --all-targets --all-features -- -D warnings
+
+# Format check - takes <1 second
+cargo fmt --all -- --check
 
 # Documentation generation - takes ~1 second
 cargo doc --target x86_64-pc-windows-gnu --no-deps
