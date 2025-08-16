@@ -1,7 +1,7 @@
 use std::env;
 use std::process;
 
-use interception_installer::InterceptionInstaller;
+use interception_installer::{install, uninstall};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -11,18 +11,16 @@ fn main() {
         return;
     }
 
-    let installer = InterceptionInstaller::new();
-
     match args[1].as_str() {
         "install" => {
-            if let Err(e) = installer.install() {
+            if let Err(e) = install() {
                 eprintln!("Installation failed: {e}");
                 process::exit(1);
             }
             println!("Installation completed successfully.");
         }
         "uninstall" => {
-            if let Err(e) = installer.uninstall() {
+            if let Err(e) = uninstall() {
                 eprintln!("Uninstallation failed: {e}");
                 process::exit(1);
             }

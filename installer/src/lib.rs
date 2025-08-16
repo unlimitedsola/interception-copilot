@@ -15,18 +15,16 @@
 //! # Usage
 //!
 //! ```no_run
-//! use interception_installer::InterceptionInstaller;
-//!
-//! let installer = InterceptionInstaller::new();
+//! use interception_installer::{install, uninstall};
 //!
 //! // Install drivers
-//! match installer.install() {
+//! match install() {
 //!     Ok(()) => println!("Installation completed successfully"),
 //!     Err(e) => eprintln!("Installation failed: {}", e),
 //! }
 //!
 //! // Uninstall drivers  
-//! match installer.uninstall() {
+//! match uninstall() {
 //!     Ok(()) => println!("Uninstallation completed successfully"),
 //!     Err(e) => eprintln!("Uninstallation failed: {}", e),
 //! }
@@ -42,5 +40,5 @@ pub mod installer;
 pub mod registry;
 pub mod system;
 
-pub use installer::{InstallError, InterceptionInstaller};
+pub use installer::{DriverType, InstallError, install, uninstall};
 pub use system::{Architecture, SystemInfo, WindowsNTVersion};
