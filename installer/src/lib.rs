@@ -54,6 +54,8 @@ use windows_sys::Win32::System::SystemInformation::{
 use windows_sys::core::PCWSTR;
 use windows_sys::w;
 
+mod registry;
+
 // Constants
 const DRIVERS_PATH: &str = r"C:\Windows\System32\drivers";
 const SERVICES_KEY: &str = r"SYSTEM\CurrentControlSet\Services";
@@ -393,35 +395,32 @@ fn create_service(service_name: &str, display_name: &str) -> Result<(), String> 
         );
 
         // Set Type (kernel driver)
-        let driver_type: u32 = 1;
         RegSetValueExW(
             key,
             w!("Type"),
             0,
             REG_DWORD,
-            &driver_type as *const u32 as *const u8,
+            1u32.to_le_bytes().as_ptr(),
             4,
         );
 
         // Set ErrorControl (normal)
-        let error_control: u32 = 1;
         RegSetValueExW(
             key,
             w!("ErrorControl"),
             0,
             REG_DWORD,
-            &error_control as *const u32 as *const u8,
+            1u32.to_le_bytes().as_ptr(),
             4,
         );
 
         // Set Start (manual start)
-        let start_type: u32 = 3;
         RegSetValueExW(
             key,
             w!("Start"),
             0,
             REG_DWORD,
-            &start_type as *const u32 as *const u8,
+            3u32.to_le_bytes().as_ptr(),
             4,
         );
 
