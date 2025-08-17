@@ -60,10 +60,7 @@ use windows_sys::w;
 
 mod registry;
 
-// Constants
 const DRIVERS_PATH: &str = r"C:\Windows\System32\drivers";
-
-// Public Types
 
 /// Represents the type of input device driver
 #[derive(Debug, Clone, Copy)]
@@ -79,7 +76,7 @@ pub const ALL_DRIVER_TYPES: &[DriverType] = &[DriverType::Keyboard, DriverType::
 
 impl DriverType {
     /// Returns the service name used in the Windows registry
-    pub const fn service_name(&self) -> &'static str {
+    pub const fn service_name(self) -> &'static str {
         match self {
             Self::Keyboard => "keyboard",
             Self::Mouse => "mouse",
@@ -87,7 +84,7 @@ impl DriverType {
     }
 
     /// Returns the display name shown in Windows services
-    pub const fn display_name(&self) -> PCWSTR {
+    pub const fn display_name(self) -> PCWSTR {
         match self {
             Self::Keyboard => w!("Keyboard Upper Filter Driver"),
             Self::Mouse => w!("Mouse Upper Filter Driver"),
@@ -95,7 +92,7 @@ impl DriverType {
     }
 
     /// Returns the Windows registry filter driver class key for this driver type
-    pub const fn class_key(&self) -> PCWSTR {
+    pub const fn class_key(self) -> PCWSTR {
         match self {
             Self::Keyboard => {
                 w!(r"SYSTEM\CurrentControlSet\Control\Class\{4d36e96b-e325-11ce-bfc1-08002be10318}")
@@ -107,11 +104,144 @@ impl DriverType {
     }
 
     /// Returns the Windows registry service key for this driver type
-    pub const fn service_key(&self) -> PCWSTR {
+    pub const fn service_key(self) -> PCWSTR {
         match self {
             Self::Keyboard => w!(r"SYSTEM\CurrentControlSet\Services\keyboard"),
             Self::Mouse => w!(r"SYSTEM\CurrentControlSet\Services\mouse"),
         }
+    }
+}
+
+impl DriverType {
+    fn install_driver(self, system_info: &SystemInfo) -> Result<(), InstallError> {
+        // Get embedded driver data directly
+        let driver_data = get_embedded_driver_data(self, system_info)?;
+
+        // Target filename and path
+        let target_filename = format!("{}.sys", self.service_name());
+        let target_path = Path::new(DRIVERS_PATH).join(&target_filename);
+
+        // Write driver file to system directory
+        fs::write(&target_path, driver_data)?;
+
+        // Install registry service
+        self.install_service()?;
+
+        Ok(())
+    }
+
+    fn uninstall_driver(self) -> Result<(), InstallError> {
+        // Remove registry entries
+        self.uninstall_service()
+            .map_err(InstallError::RegistryError)?;
+
+        // Remove driver file from system directory
+        let target_filename = format!("{}.sys", self.service_name());
+        let target_path = Path::new(DRIVERS_PATH).join(&target_filename);
+
+        if target_path.exists() {
+            fs::remove_file(&target_path)?;
+        }
+
+        Ok(())
+    }
+
+    fn install_service(self) -> Result<(), registry::Error> {
+        self.create_service()?;
+        self.add_class_filter()?;
+        Ok(())
+    }
+
+    fn uninstall_service(self) -> Result<(), registry::Error> {
+        self.remove_class_filter()?;
+        self.delete_service()?;
+        Ok(())
+    }
+
+    fn create_service(self) -> Result<(), registry::Error> {
+        unsafe {
+            let key = Key::LOCAL_MACHINE.create(
+                self.service_key(),
+                REG_OPTION_NON_VOLATILE,
+                KEY_ALL_ACCESS,
+            )?;
+            key.set_raw(w!("DisplayName"), REG_SZ, &[])?; //todo
+            key.set(w!("Type"), SERVICE_KERNEL_DRIVER)?;
+            key.set(w!("ErrorControl"), SERVICE_ERROR_NORMAL)?;
+            key.set(w!("Start"), SERVICE_DEMAND_START)?;
+        }
+        Ok(())
+    }
+
+    fn delete_service(self) -> Result<(), registry::Error> {
+        unsafe { Key::LOCAL_MACHINE.delete_key(self.service_key()) }
+    }
+
+    fn add_class_filter(self) -> Result<(), registry::Error> {
+        unsafe {
+            let mut key: HKEY = ptr::null_mut();
+
+            let result = RegOpenKeyExW(
+                HKEY_LOCAL_MACHINE,
+                self.class_key(),
+                0,
+                KEY_ALL_ACCESS,
+                &mut key,
+            );
+
+            if result != ERROR_SUCCESS {
+                todo!()
+            }
+
+            // Get current UpperFilters value
+            let mut filters = get_upper_filters(key)?;
+
+            // Add our filter if not already present
+            let svc_name = self.service_name();
+            if !filters.iter().any(|f| f == svc_name) {
+                filters.push(svc_name.to_string());
+                set_upper_filters(key, &filters)?;
+            }
+
+            RegCloseKey(key);
+        }
+
+        Ok(())
+    }
+
+    fn remove_class_filter(self) -> Result<(), registry::Error> {
+        unsafe {
+            let mut key: HKEY = ptr::null_mut();
+
+            let result = RegOpenKeyExW(
+                HKEY_LOCAL_MACHINE,
+                self.class_key(),
+                0,
+                KEY_ALL_ACCESS,
+                &mut key,
+            );
+
+            if result != ERROR_SUCCESS {
+                todo!()
+            }
+
+            // Get current UpperFilters value
+            let mut filters = get_upper_filters(key)?;
+
+            // Remove our filter
+            filters.retain(|f| f != self.service_name());
+
+            if filters.is_empty() {
+                // Delete the UpperFilters value if no filters remain
+                RegDeleteValueW(key, w!("UpperFilters"));
+            } else {
+                set_upper_filters(key, &filters)?;
+            }
+
+            RegCloseKey(key);
+        }
+
+        Ok(())
     }
 }
 
@@ -192,8 +322,6 @@ impl From<registry::Error> for InstallError {
     }
 }
 
-// Public API Functions
-
 /// Install all Interception drivers
 ///
 /// This will:
@@ -209,7 +337,7 @@ pub fn install() -> Result<(), InstallError> {
     // Install all drivers
     for &driver_type in ALL_DRIVER_TYPES {
         println!("Installing {} driver...", driver_type.service_name());
-        install_driver(&system_info, driver_type)?;
+        driver_type.install_driver(&system_info)?;
     }
 
     println!("Driver installation completed successfully.");
@@ -232,7 +360,7 @@ pub fn uninstall() -> Result<(), InstallError> {
     // Uninstall all drivers
     for &driver_type in ALL_DRIVER_TYPES {
         println!("Removing {} driver...", driver_type.service_name());
-        uninstall_driver(driver_type)?;
+        driver_type.uninstall_driver()?;
     }
 
     println!("Driver uninstallation completed successfully.");
@@ -295,38 +423,6 @@ fn get_embedded_driver_data(
     Ok(driver_data)
 }
 
-fn install_driver(system_info: &SystemInfo, driver_type: DriverType) -> Result<(), InstallError> {
-    // Get embedded driver data directly
-    let driver_data = get_embedded_driver_data(driver_type, system_info)?;
-
-    // Target filename and path
-    let target_filename = format!("{}.sys", driver_type.service_name());
-    let target_path = Path::new(DRIVERS_PATH).join(&target_filename);
-
-    // Write driver file to system directory
-    fs::write(&target_path, driver_data)?;
-
-    // Install registry service
-    install_service(driver_type)?;
-
-    Ok(())
-}
-
-fn uninstall_driver(driver_type: DriverType) -> Result<(), InstallError> {
-    // Remove registry entries
-    uninstall_service(driver_type).map_err(InstallError::RegistryError)?;
-
-    // Remove driver file from system directory
-    let target_filename = format!("{}.sys", driver_type.service_name());
-    let target_path = Path::new(DRIVERS_PATH).join(&target_filename);
-
-    if target_path.exists() {
-        fs::remove_file(&target_path)?;
-    }
-
-    Ok(())
-}
-
 // System Detection Functions
 
 fn get_windows_version() -> Result<WindowsNTVersion, String> {
@@ -364,104 +460,6 @@ fn get_architecture() -> Result<Architecture, String> {
 }
 
 // Registry Service Functions
-
-fn install_service(driver_type: DriverType) -> Result<(), registry::Error> {
-    create_service(driver_type)?;
-    add_class_filter(driver_type)?;
-    Ok(())
-}
-
-fn uninstall_service(driver_type: DriverType) -> Result<(), registry::Error> {
-    remove_class_filter(driver_type)?;
-    delete_service(driver_type)?;
-    Ok(())
-}
-
-fn create_service(driver_type: DriverType) -> Result<(), registry::Error> {
-    unsafe {
-        let key = Key::LOCAL_MACHINE.create(
-            driver_type.service_key(),
-            REG_OPTION_NON_VOLATILE,
-            KEY_ALL_ACCESS,
-        )?;
-        key.set_raw(w!("DisplayName"), REG_SZ, &[])?; //todo
-        key.set(w!("Type"), SERVICE_KERNEL_DRIVER)?;
-        key.set(w!("ErrorControl"), SERVICE_ERROR_NORMAL)?;
-        key.set(w!("Start"), SERVICE_DEMAND_START)?;
-    }
-    Ok(())
-}
-
-fn delete_service(driver_type: DriverType) -> Result<(), registry::Error> {
-    unsafe { Key::LOCAL_MACHINE.delete_key(driver_type.service_key()) }
-}
-
-fn add_class_filter(driver_type: DriverType) -> Result<(), registry::Error> {
-    unsafe {
-        let mut key: HKEY = ptr::null_mut();
-
-        let result = RegOpenKeyExW(
-            HKEY_LOCAL_MACHINE,
-            driver_type.class_key(),
-            0,
-            KEY_ALL_ACCESS,
-            &mut key,
-        );
-
-        if result != ERROR_SUCCESS {
-            todo!()
-        }
-
-        // Get current UpperFilters value
-        let mut filters = get_upper_filters(key)?;
-
-        // Add our filter if not already present
-        let svc_name = driver_type.service_name();
-        if !filters.iter().any(|f| f == svc_name) {
-            filters.push(svc_name.to_string());
-            set_upper_filters(key, &filters)?;
-        }
-
-        RegCloseKey(key);
-    }
-
-    Ok(())
-}
-
-fn remove_class_filter(driver_type: DriverType) -> Result<(), registry::Error> {
-    unsafe {
-        let mut key: HKEY = ptr::null_mut();
-
-        let result = RegOpenKeyExW(
-            HKEY_LOCAL_MACHINE,
-            driver_type.class_key(),
-            0,
-            KEY_ALL_ACCESS,
-            &mut key,
-        );
-
-        if result != ERROR_SUCCESS {
-            todo!()
-        }
-
-        // Get current UpperFilters value
-        let mut filters = get_upper_filters(key)?;
-
-        // Remove our filter
-        filters.retain(|f| f != driver_type.service_name());
-
-        if filters.is_empty() {
-            // Delete the UpperFilters value if no filters remain
-            RegDeleteValueW(key, w!("UpperFilters"));
-        } else {
-            set_upper_filters(key, &filters)?;
-        }
-
-        RegCloseKey(key);
-    }
-
-    Ok(())
-}
 
 fn get_upper_filters(key: HKEY) -> Result<Vec<String>, registry::Error> {
     unsafe {
