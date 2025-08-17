@@ -1,12 +1,16 @@
-use std::error::Error;
+//! # Safety
+//!
+//! The `PCWSTR` pointers in this module always assume that the pointer is valid for reads
+//! up until and including the next `\0`. This is a common requirement for Windows API
+//! functions that deal with wide strings.
 use std::fmt::Display;
 use std::num::NonZeroU32;
-use std::{fmt, ptr};
+use std::{error, fmt, ptr};
 use windows_sys::Win32::Foundation::WIN32_ERROR;
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_CLASSES_ROOT, HKEY_CURRENT_CONFIG, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE,
-    HKEY_USERS, REG_OPEN_CREATE_OPTIONS, REG_SAM_FLAGS, REG_VALUE_TYPE, RegCloseKey,
-    RegCreateKeyExW, RegOpenKeyExW, RegSetValueExW,
+    HKEY_USERS, REG_DWORD, REG_OPEN_CREATE_OPTIONS, REG_QWORD, REG_SAM_FLAGS, REG_VALUE_TYPE,
+    RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegDeleteValueW, RegOpenKeyExW, RegSetValueExW,
 };
 use windows_sys::core::PCWSTR;
 
@@ -80,7 +84,7 @@ impl Key {
     /// # Safety
     ///
     /// The `PCWSTR` pointer needs to be valid for reads up until and including the next `\0`.
-    pub unsafe fn set(&self, name: PCWSTR, value_type: REG_VALUE_TYPE, value: &[u8]) -> Result {
+    pub unsafe fn set_raw(&self, name: PCWSTR, value_type: REG_VALUE_TYPE, value: &[u8]) -> Result {
         let res = unsafe {
             RegSetValueExW(
                 self.0,
@@ -93,34 +97,84 @@ impl Key {
         };
         win32_result(res)
     }
+
+    /// # Safety
+    ///
+    /// The `PCWSTR` pointer needs to be valid for reads up until and including the next `\0`.
+    pub unsafe fn set<V: RegValue>(&self, name: PCWSTR, value: V) -> Result {
+        unsafe { self.set_raw(name, V::VALUE_TYPE, value.as_bytes().as_ref()) }
+    }
+}
+
+/// Delete operations
+impl Key {
+    /// # Safety
+    ///
+    /// The `PCWSTR` pointer needs to be valid for reads up until and including the next `\0`.
+    pub unsafe fn delete_key(&self, path: PCWSTR) -> Result {
+        let res = unsafe { RegDeleteKeyW(self.0, path) };
+        win32_result(res)
+    }
+
+    /// # Safety
+    ///
+    /// The `PCWSTR` pointer needs to be valid for reads up until and including the next `\0`.
+    pub unsafe fn delete_value(&self, name: PCWSTR) -> Result {
+        let res = unsafe { RegDeleteValueW(self.0, name) };
+        win32_result(res)
+    }
 }
 
 impl Drop for Key {
     fn drop(&mut self) {
-        unsafe { RegCloseKey(self.0) };
+        unsafe {
+            let _ = RegCloseKey(self.0);
+        };
     }
 }
 
-type Result<T = (), E = RegistryError> = core::result::Result<T, E>;
+pub trait RegValue: Sized {
+    const VALUE_TYPE: REG_VALUE_TYPE;
+
+    fn as_bytes(&self) -> impl AsRef<[u8]>;
+}
+
+impl RegValue for u32 {
+    const VALUE_TYPE: REG_VALUE_TYPE = REG_DWORD;
+
+    fn as_bytes(&self) -> impl AsRef<[u8]> {
+        self.to_le_bytes()
+    }
+}
+
+impl RegValue for u64 {
+    const VALUE_TYPE: REG_VALUE_TYPE = REG_QWORD;
+
+    fn as_bytes(&self) -> impl AsRef<[u8]> {
+        self.to_le_bytes()
+    }
+}
+
+type Result<T = (), E = Error> = core::result::Result<T, E>;
 
 const fn win32_result(result: WIN32_ERROR) -> Result {
     match NonZeroU32::new(result) {
         None => Ok(()),
-        Some(code) => Err(RegistryError(code)),
+        Some(code) => Err(Error(code)),
     }
 }
 
 #[derive(Debug)]
-pub struct RegistryError(NonZeroU32);
+pub struct Error(NonZeroU32);
 
 const _: () = {
     ["Result is niche optimized"][size_of::<Result>() - size_of::<WIN32_ERROR>()];
 };
 
-impl Display for RegistryError {
+impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Registry error: {}", self.0)
     }
 }
 
-impl Error for RegistryError {}
+impl error::Error for Error {}

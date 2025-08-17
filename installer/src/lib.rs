@@ -36,16 +36,20 @@
 //! - A system reboot is required after installation or uninstallation
 //! - Only works on Windows systems with appropriate driver files available
 
-use std::fs;
-use std::io;
+use crate::registry::Key;
+use std::error::Error;
+use std::fmt::Display;
 use std::mem::size_of;
 use std::path::Path;
-use std::ptr;
+use std::{fmt, fs, io, ptr};
 use windows_sys::Win32::Foundation::{ERROR_SUCCESS, FALSE};
 use windows_sys::Win32::System::Registry::{
-    HKEY, HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS, REG_DWORD, REG_MULTI_SZ, REG_SZ, RegCloseKey,
-    RegCreateKeyExW, RegDeleteKeyW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW,
-    RegSetValueExW,
+    HKEY, HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS, REG_DWORD, REG_MULTI_SZ, REG_OPTION_NON_VOLATILE,
+    REG_SZ, RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegDeleteValueW, RegOpenKeyExW,
+    RegQueryValueExW, RegSetValueExW,
+};
+use windows_sys::Win32::System::Services::{
+    SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
 };
 use windows_sys::Win32::System::SystemInformation::{
     GetSystemInfo, GetVersionExW, OSVERSIONINFOW, PROCESSOR_ARCHITECTURE_AMD64,
@@ -58,11 +62,6 @@ mod registry;
 
 // Constants
 const DRIVERS_PATH: &str = r"C:\Windows\System32\drivers";
-const SERVICES_KEY: &str = r"SYSTEM\CurrentControlSet\Services";
-const KEYBOARD_CLASS_KEY: PCWSTR =
-    w!(r"SYSTEM\CurrentControlSet\Control\Class\{4d36e96b-e325-11ce-bfc1-08002be10318}");
-const MOUSE_CLASS_KEY: PCWSTR =
-    w!(r"SYSTEM\CurrentControlSet\Control\Class\{4d36e96f-e325-11ce-bfc1-08002be10318}");
 
 // Public Types
 
@@ -80,7 +79,7 @@ pub const ALL_DRIVER_TYPES: &[DriverType] = &[DriverType::Keyboard, DriverType::
 
 impl DriverType {
     /// Returns the service name used in the Windows registry
-    pub fn service_name(&self) -> &'static str {
+    pub const fn service_name(&self) -> &'static str {
         match self {
             Self::Keyboard => "keyboard",
             Self::Mouse => "mouse",
@@ -88,18 +87,30 @@ impl DriverType {
     }
 
     /// Returns the display name shown in Windows services
-    pub fn display_name(&self) -> &'static str {
+    pub const fn display_name(&self) -> PCWSTR {
         match self {
-            Self::Keyboard => "Keyboard Upper Filter Driver",
-            Self::Mouse => "Mouse Upper Filter Driver",
+            Self::Keyboard => w!("Keyboard Upper Filter Driver"),
+            Self::Mouse => w!("Mouse Upper Filter Driver"),
         }
     }
 
-    /// Returns the Windows registry class key for this driver type
-    pub fn class_key(&self) -> &'static PCWSTR {
+    /// Returns the Windows registry filter driver class key for this driver type
+    pub const fn class_key(&self) -> PCWSTR {
         match self {
-            Self::Keyboard => &KEYBOARD_CLASS_KEY,
-            Self::Mouse => &MOUSE_CLASS_KEY,
+            Self::Keyboard => {
+                w!(r"SYSTEM\CurrentControlSet\Control\Class\{4d36e96b-e325-11ce-bfc1-08002be10318}")
+            }
+            Self::Mouse => {
+                w!(r"SYSTEM\CurrentControlSet\Control\Class\{4d36e96f-e325-11ce-bfc1-08002be10318}")
+            }
+        }
+    }
+
+    /// Returns the Windows registry service key for this driver type
+    pub const fn service_key(&self) -> PCWSTR {
+        match self {
+            Self::Keyboard => w!(r"SYSTEM\CurrentControlSet\Services\keyboard"),
+            Self::Mouse => w!(r"SYSTEM\CurrentControlSet\Services\mouse"),
         }
     }
 }
@@ -139,19 +150,19 @@ impl SystemInfo {
 pub enum InstallError {
     SystemDetectionFailed(String),
     IoError(io::Error),
-    RegistryError(String),
+    RegistryError(registry::Error),
     DriverNotFound(String),
     PermissionDenied,
 }
 
-impl std::fmt::Display for InstallError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for InstallError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             InstallError::SystemDetectionFailed(msg) => {
                 write!(f, "System detection failed: {msg}")
             }
             InstallError::IoError(err) => write!(f, "I/O error: {err}"),
-            InstallError::RegistryError(msg) => write!(f, "Registry error: {msg}"),
+            InstallError::RegistryError(err) => write!(f, "Registry error: {err}"),
             InstallError::DriverNotFound(msg) => write!(f, "Driver file not found: {msg}"),
             InstallError::PermissionDenied => {
                 write!(f, "Permission denied - administrator privileges required")
@@ -160,8 +171,8 @@ impl std::fmt::Display for InstallError {
     }
 }
 
-impl std::error::Error for InstallError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl Error for InstallError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             InstallError::IoError(err) => Some(err),
             _ => None,
@@ -172,6 +183,12 @@ impl std::error::Error for InstallError {
 impl From<io::Error> for InstallError {
     fn from(err: io::Error) -> Self {
         InstallError::IoError(err)
+    }
+}
+
+impl From<registry::Error> for InstallError {
+    fn from(err: registry::Error) -> Self {
+        InstallError::RegistryError(err)
     }
 }
 
@@ -290,7 +307,7 @@ fn install_driver(system_info: &SystemInfo, driver_type: DriverType) -> Result<(
     fs::write(&target_path, driver_data)?;
 
     // Install registry service
-    install_service(driver_type).map_err(InstallError::RegistryError)?;
+    install_service(driver_type)?;
 
     Ok(())
 }
@@ -348,119 +365,60 @@ fn get_architecture() -> Result<Architecture, String> {
 
 // Registry Service Functions
 
-fn install_service(driver_type: DriverType) -> Result<(), String> {
-    create_service(driver_type.service_name(), driver_type.display_name())?;
-    add_class_filter(*driver_type.class_key(), driver_type.service_name())?;
+fn install_service(driver_type: DriverType) -> Result<(), registry::Error> {
+    create_service(driver_type)?;
+    add_class_filter(driver_type)?;
     Ok(())
 }
 
-fn uninstall_service(driver_type: DriverType) -> Result<(), String> {
-    remove_class_filter(*driver_type.class_key(), driver_type.service_name())?;
-    delete_service(driver_type.service_name())?;
+fn uninstall_service(driver_type: DriverType) -> Result<(), registry::Error> {
+    remove_class_filter(driver_type)?;
+    delete_service(driver_type)?;
     Ok(())
 }
 
-fn create_service(service_name: &str, display_name: &str) -> Result<(), String> {
-    let service_key = format!("{SERVICES_KEY}\\{service_name}");
-
+fn create_service(driver_type: DriverType) -> Result<(), registry::Error> {
     unsafe {
-        let mut key: HKEY = ptr::null_mut();
-        let service_key_wide = to_wide_string(&service_key);
-
-        let result = RegCreateKeyExW(
-            HKEY_LOCAL_MACHINE,
-            service_key_wide.as_ptr(),
-            0,
-            ptr::null(), // lpClass - can be null (input parameter)
-            0,           // dwOptions
+        let key = Key::LOCAL_MACHINE.create(
+            driver_type.service_key(),
+            REG_OPTION_NON_VOLATILE,
             KEY_ALL_ACCESS,
-            ptr::null(), // lpSecurityAttributes - can be null (input parameter)
-            &mut key,
-            ptr::null_mut(), // lpdwDisposition - can be null (output parameter)
-        );
-
-        if result != ERROR_SUCCESS {
-            return Err(format!("Failed to create service key: {result}"));
-        }
-
-        // Set DisplayName
-        let display_name_wide = to_wide_string(display_name);
-        RegSetValueExW(
-            key,
-            w!("DisplayName"),
-            0,
-            REG_SZ,
-            display_name_wide.as_ptr() as *const u8,
-            (display_name_wide.len() * 2) as u32,
-        );
-
-        // Set Type (kernel driver)
-        RegSetValueExW(
-            key,
-            w!("Type"),
-            0,
-            REG_DWORD,
-            1u32.to_le_bytes().as_ptr(),
-            4,
-        );
-
-        // Set ErrorControl (normal)
-        RegSetValueExW(
-            key,
-            w!("ErrorControl"),
-            0,
-            REG_DWORD,
-            1u32.to_le_bytes().as_ptr(),
-            4,
-        );
-
-        // Set Start (manual start)
-        RegSetValueExW(
-            key,
-            w!("Start"),
-            0,
-            REG_DWORD,
-            3u32.to_le_bytes().as_ptr(),
-            4,
-        );
-
-        RegCloseKey(key);
+        )?;
+        key.set_raw(w!("DisplayName"), REG_SZ, &[])?; //todo
+        key.set(w!("Type"), SERVICE_KERNEL_DRIVER)?;
+        key.set(w!("ErrorControl"), SERVICE_ERROR_NORMAL)?;
+        key.set(w!("Start"), SERVICE_DEMAND_START)?;
     }
-
     Ok(())
 }
 
-fn delete_service(service_name: &str) -> Result<(), String> {
-    let service_key = format!("{SERVICES_KEY}\\{service_name}");
-
-    unsafe {
-        let service_key_wide = to_wide_string(&service_key);
-        let result = RegDeleteKeyW(HKEY_LOCAL_MACHINE, service_key_wide.as_ptr());
-
-        if result != ERROR_SUCCESS {
-            return Err(format!("Failed to delete service key: {result}"));
-        }
-    }
-
-    Ok(())
+fn delete_service(driver_type: DriverType) -> Result<(), registry::Error> {
+    unsafe { Key::LOCAL_MACHINE.delete_key(driver_type.service_key()) }
 }
 
-fn add_class_filter(class_key: PCWSTR, filter_name: &str) -> Result<(), String> {
+fn add_class_filter(driver_type: DriverType) -> Result<(), registry::Error> {
     unsafe {
         let mut key: HKEY = ptr::null_mut();
 
-        let result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, class_key, 0, KEY_ALL_ACCESS, &mut key);
+        let result = RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            driver_type.class_key(),
+            0,
+            KEY_ALL_ACCESS,
+            &mut key,
+        );
 
         if result != ERROR_SUCCESS {
-            return Err(format!("Failed to open class key: {result}"));
+            todo!()
         }
 
         // Get current UpperFilters value
         let mut filters = get_upper_filters(key)?;
 
         // Add our filter if not already present
-        if !filters.contains(&filter_name.to_string()) {
-            filters.push(filter_name.to_string());
+        let svc_name = driver_type.service_name();
+        if !filters.iter().any(|f| f == svc_name) {
+            filters.push(svc_name.to_string());
             set_upper_filters(key, &filters)?;
         }
 
@@ -470,21 +428,27 @@ fn add_class_filter(class_key: PCWSTR, filter_name: &str) -> Result<(), String> 
     Ok(())
 }
 
-fn remove_class_filter(class_key: PCWSTR, filter_name: &str) -> Result<(), String> {
+fn remove_class_filter(driver_type: DriverType) -> Result<(), registry::Error> {
     unsafe {
         let mut key: HKEY = ptr::null_mut();
 
-        let result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, class_key, 0, KEY_ALL_ACCESS, &mut key);
+        let result = RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            driver_type.class_key(),
+            0,
+            KEY_ALL_ACCESS,
+            &mut key,
+        );
 
         if result != ERROR_SUCCESS {
-            return Err(format!("Failed to open class key: {result}"));
+            todo!()
         }
 
         // Get current UpperFilters value
         let mut filters = get_upper_filters(key)?;
 
         // Remove our filter
-        filters.retain(|f| f != filter_name);
+        filters.retain(|f| f != driver_type.service_name());
 
         if filters.is_empty() {
             // Delete the UpperFilters value if no filters remain
@@ -499,7 +463,7 @@ fn remove_class_filter(class_key: PCWSTR, filter_name: &str) -> Result<(), Strin
     Ok(())
 }
 
-fn get_upper_filters(key: HKEY) -> Result<Vec<String>, String> {
+fn get_upper_filters(key: HKEY) -> Result<Vec<String>, registry::Error> {
     unsafe {
         let mut buffer_size = 0u32;
         let mut data_type = 0u32;
@@ -530,7 +494,7 @@ fn get_upper_filters(key: HKEY) -> Result<Vec<String>, String> {
         );
 
         if result != ERROR_SUCCESS {
-            return Err(format!("Failed to read UpperFilters: {result}"));
+            todo!()
         }
 
         // Convert buffer to Vec<String>
@@ -561,7 +525,7 @@ fn get_upper_filters(key: HKEY) -> Result<Vec<String>, String> {
     }
 }
 
-fn set_upper_filters(key: HKEY, filters: &[String]) -> Result<(), String> {
+fn set_upper_filters(key: HKEY, filters: &[String]) -> Result<(), registry::Error> {
     // Convert to wide multi-string format
     let mut wide_data = Vec::new();
 
@@ -583,7 +547,7 @@ fn set_upper_filters(key: HKEY, filters: &[String]) -> Result<(), String> {
         );
 
         if result != ERROR_SUCCESS {
-            return Err(format!("Failed to set UpperFilters: {result}"));
+            todo!();
         }
     }
 
