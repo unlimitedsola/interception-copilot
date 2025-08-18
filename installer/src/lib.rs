@@ -7,7 +7,7 @@
 //! # Features
 //!
 //! - Automatic Windows version and architecture detection
-//! - Driver file extraction and installation to system directory  
+//! - Driver file extraction and installation to system directory
 //! - Registry service configuration for keyboard and mouse drivers
 //! - Device class filter setup (UpperFilters registry entries)
 //! - Complete uninstallation support
@@ -23,7 +23,7 @@
 //!     Err(e) => eprintln!("Installation failed: {}", e),
 //! }
 //!
-//! // Uninstall drivers  
+//! // Uninstall drivers
 //! match uninstall() {
 //!     Ok(()) => println!("Uninstallation completed successfully"),
 //!     Err(e) => eprintln!("Uninstallation failed: {}", e),
@@ -59,6 +59,13 @@ use windows_sys::core::PCWSTR;
 use windows_sys::w;
 
 mod registry;
+
+// Embedded driver files organized by type and system parameters
+macro_rules! embed_driver {
+    ($name:literal) => {
+        include_bytes!(concat!("../drivers/", $name, ".sys")).as_slice()
+    };
+}
 
 const DRIVERS_PATH: &str = r"C:\Windows\System32\drivers";
 
@@ -115,7 +122,7 @@ impl DriverType {
 impl DriverType {
     fn install_driver(self, system_info: &SystemInfo) -> Result<(), InstallError> {
         // Get embedded driver data directly
-        let driver_data = get_embedded_driver_data(self, system_info)?;
+        let driver_data = self.get_driver_binary(system_info)?;
 
         // Target filename and path
         let target_filename = format!("{}.sys", self.service_name());
@@ -243,6 +250,44 @@ impl DriverType {
 
         Ok(())
     }
+
+    fn get_driver_binary(self, system_info: &SystemInfo) -> Result<&'static [u8], InstallError> {
+        let driver_data = match (
+            self,
+            (system_info.version.major, system_info.version.minor),
+            system_info.architecture,
+        ) {
+            // Keyboard drivers
+            (DriverType::Keyboard, (5, 1), Architecture::X86) => embed_driver!("KBDNT51X86"),
+            (DriverType::Keyboard, (5, 2), Architecture::AMD64) => embed_driver!("KBDNT52A64"),
+            (DriverType::Keyboard, (5, 2), Architecture::IA64) => embed_driver!("KBDNT52I64"),
+            (DriverType::Keyboard, (5, 2), Architecture::X86) => embed_driver!("KBDNT52X86"),
+            (DriverType::Keyboard, (6, 0), Architecture::AMD64) => embed_driver!("KBDNT60A64"),
+            (DriverType::Keyboard, (6, 0), Architecture::IA64) => embed_driver!("KBDNT60I64"),
+            (DriverType::Keyboard, (6, 0), Architecture::X86) => embed_driver!("KBDNT60X86"),
+            (DriverType::Keyboard, (6, 1), Architecture::AMD64) => embed_driver!("KBDNT61A64"),
+            (DriverType::Keyboard, (6, 1), Architecture::IA64) => embed_driver!("KBDNT61I64"),
+            (DriverType::Keyboard, (6, 1), Architecture::X86) => embed_driver!("KBDNT61X86"),
+            // Mouse drivers
+            (DriverType::Mouse, (5, 1), Architecture::X86) => embed_driver!("MOUNT51X86"),
+            (DriverType::Mouse, (5, 2), Architecture::AMD64) => embed_driver!("MOUNT52A64"),
+            (DriverType::Mouse, (5, 2), Architecture::IA64) => embed_driver!("MOUNT52I64"),
+            (DriverType::Mouse, (5, 2), Architecture::X86) => embed_driver!("MOUNT52X86"),
+            (DriverType::Mouse, (6, 0), Architecture::AMD64) => embed_driver!("MOUNT60A64"),
+            (DriverType::Mouse, (6, 0), Architecture::IA64) => embed_driver!("MOUNT60I64"),
+            (DriverType::Mouse, (6, 0), Architecture::X86) => embed_driver!("MOUNT60X86"),
+            (DriverType::Mouse, (6, 1), Architecture::AMD64) => embed_driver!("MOUNT61A64"),
+            (DriverType::Mouse, (6, 1), Architecture::IA64) => embed_driver!("MOUNT61I64"),
+            (DriverType::Mouse, (6, 1), Architecture::X86) => embed_driver!("MOUNT61X86"),
+            _ => {
+                return Err(InstallError::DriverNotFound(format!(
+                    "No driver available for {self:?} on {:?} {:?}",
+                    system_info.version, system_info.architecture
+                )));
+            }
+        };
+        Ok(driver_data)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -265,7 +310,7 @@ pub struct SystemInfo {
 }
 
 impl SystemInfo {
-    pub fn detect() -> Result<Self, String> {
+    pub fn detect() -> Result<Self, &'static str> {
         let version = get_windows_version()?;
         let architecture = get_architecture()?;
 
@@ -278,7 +323,7 @@ impl SystemInfo {
 
 #[derive(Debug)]
 pub enum InstallError {
-    SystemDetectionFailed(String),
+    SystemDetectionFailed(&'static str),
     IoError(io::Error),
     RegistryError(registry::Error),
     DriverNotFound(String),
@@ -370,62 +415,7 @@ pub fn uninstall() -> Result<(), InstallError> {
     Ok(())
 }
 
-// Private Implementation Functions
-
-// Embedded driver files organized by type and system parameters
-macro_rules! embed_driver {
-    ($name:literal) => {
-        include_bytes!(concat!("../drivers/", $name, ".sys")).as_slice()
-    };
-}
-
-fn get_embedded_driver_data(
-    driver_type: DriverType,
-    system_info: &SystemInfo,
-) -> Result<&'static [u8], InstallError> {
-    let driver_data = match (
-        driver_type,
-        (system_info.version.major, system_info.version.minor),
-        system_info.architecture,
-    ) {
-        // Keyboard drivers
-        (DriverType::Keyboard, (5, 1), Architecture::X86) => embed_driver!("KBDNT51X86"),
-        (DriverType::Keyboard, (5, 2), Architecture::AMD64) => embed_driver!("KBDNT52A64"),
-        (DriverType::Keyboard, (5, 2), Architecture::IA64) => embed_driver!("KBDNT52I64"),
-        (DriverType::Keyboard, (5, 2), Architecture::X86) => embed_driver!("KBDNT52X86"),
-        (DriverType::Keyboard, (6, 0), Architecture::AMD64) => embed_driver!("KBDNT60A64"),
-        (DriverType::Keyboard, (6, 0), Architecture::IA64) => embed_driver!("KBDNT60I64"),
-        (DriverType::Keyboard, (6, 0), Architecture::X86) => embed_driver!("KBDNT60X86"),
-        (DriverType::Keyboard, (6, 1), Architecture::AMD64) => embed_driver!("KBDNT61A64"),
-        (DriverType::Keyboard, (6, 1), Architecture::IA64) => embed_driver!("KBDNT61I64"),
-        (DriverType::Keyboard, (6, 1), Architecture::X86) => embed_driver!("KBDNT61X86"),
-
-        // Mouse drivers
-        (DriverType::Mouse, (5, 1), Architecture::X86) => embed_driver!("MOUNT51X86"),
-        (DriverType::Mouse, (5, 2), Architecture::AMD64) => embed_driver!("MOUNT52A64"),
-        (DriverType::Mouse, (5, 2), Architecture::IA64) => embed_driver!("MOUNT52I64"),
-        (DriverType::Mouse, (5, 2), Architecture::X86) => embed_driver!("MOUNT52X86"),
-        (DriverType::Mouse, (6, 0), Architecture::AMD64) => embed_driver!("MOUNT60A64"),
-        (DriverType::Mouse, (6, 0), Architecture::IA64) => embed_driver!("MOUNT60I64"),
-        (DriverType::Mouse, (6, 0), Architecture::X86) => embed_driver!("MOUNT60X86"),
-        (DriverType::Mouse, (6, 1), Architecture::AMD64) => embed_driver!("MOUNT61A64"),
-        (DriverType::Mouse, (6, 1), Architecture::IA64) => embed_driver!("MOUNT61I64"),
-        (DriverType::Mouse, (6, 1), Architecture::X86) => embed_driver!("MOUNT61X86"),
-
-        _ => {
-            return Err(InstallError::DriverNotFound(format!(
-                "No driver available for {driver_type:?} on {:?} {:?}",
-                system_info.version, system_info.architecture
-            )));
-        }
-    };
-
-    Ok(driver_data)
-}
-
-// System Detection Functions
-
-fn get_windows_version() -> Result<WindowsNTVersion, String> {
+fn get_windows_version() -> Result<WindowsNTVersion, &'static str> {
     unsafe {
         let mut version_info = OSVERSIONINFOW {
             dwOSVersionInfoSize: size_of::<OSVERSIONINFOW>() as u32,
@@ -433,7 +423,7 @@ fn get_windows_version() -> Result<WindowsNTVersion, String> {
         };
 
         if GetVersionExW(&mut version_info) == FALSE {
-            return Err("Failed to get Windows version".to_string());
+            return Err("Failed to get Windows version");
         }
 
         Ok(WindowsNTVersion {
@@ -443,7 +433,7 @@ fn get_windows_version() -> Result<WindowsNTVersion, String> {
     }
 }
 
-fn get_architecture() -> Result<Architecture, String> {
+fn get_architecture() -> Result<Architecture, &'static str> {
     unsafe {
         let mut system_info = SYSTEM_INFO::default();
         GetSystemInfo(&mut system_info);
@@ -452,14 +442,12 @@ fn get_architecture() -> Result<Architecture, String> {
             PROCESSOR_ARCHITECTURE_INTEL => Architecture::X86,
             PROCESSOR_ARCHITECTURE_AMD64 => Architecture::AMD64,
             PROCESSOR_ARCHITECTURE_IA64 => Architecture::IA64,
-            _ => return Err("Unsupported processor architecture".to_string()),
+            _ => return Err("Unsupported processor architecture"),
         };
 
         Ok(architecture)
     }
 }
-
-// Registry Service Functions
 
 fn get_upper_filters(key: HKEY) -> Result<Vec<String>, registry::Error> {
     unsafe {
