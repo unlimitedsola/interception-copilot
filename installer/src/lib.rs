@@ -289,83 +289,6 @@ impl DriverType {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct WindowsNTVersion {
-    pub major: u32,
-    pub minor: u32,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Architecture {
-    X86,
-    AMD64,
-    IA64,
-}
-
-#[derive(Debug)]
-pub struct SystemInfo {
-    pub version: WindowsNTVersion,
-    pub architecture: Architecture,
-}
-
-impl SystemInfo {
-    pub fn detect() -> Result<Self, &'static str> {
-        let version = get_windows_version()?;
-        let architecture = get_architecture()?;
-
-        Ok(SystemInfo {
-            version,
-            architecture,
-        })
-    }
-}
-
-#[derive(Debug)]
-pub enum InstallError {
-    SystemDetectionFailed(&'static str),
-    IoError(io::Error),
-    RegistryError(registry::Error),
-    DriverNotFound(String),
-    PermissionDenied,
-}
-
-impl Display for InstallError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            InstallError::SystemDetectionFailed(msg) => {
-                write!(f, "System detection failed: {msg}")
-            }
-            InstallError::IoError(err) => write!(f, "I/O error: {err}"),
-            InstallError::RegistryError(err) => write!(f, "Registry error: {err}"),
-            InstallError::DriverNotFound(msg) => write!(f, "Driver file not found: {msg}"),
-            InstallError::PermissionDenied => {
-                write!(f, "Permission denied - administrator privileges required")
-            }
-        }
-    }
-}
-
-impl Error for InstallError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            InstallError::IoError(err) => Some(err),
-            _ => None,
-        }
-    }
-}
-
-impl From<io::Error> for InstallError {
-    fn from(err: io::Error) -> Self {
-        InstallError::IoError(err)
-    }
-}
-
-impl From<registry::Error> for InstallError {
-    fn from(err: registry::Error) -> Self {
-        InstallError::RegistryError(err)
-    }
-}
-
 /// Install all Interception drivers
 ///
 /// This will:
@@ -412,6 +335,37 @@ pub fn uninstall() -> Result<(), InstallError> {
     println!("IMPORTANT: You must reboot your system for the changes to take effect.");
 
     Ok(())
+}
+
+#[derive(Debug)]
+pub struct SystemInfo {
+    pub version: WindowsNTVersion,
+    pub architecture: Architecture,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WindowsNTVersion {
+    pub major: u32,
+    pub minor: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Architecture {
+    X86,
+    AMD64,
+    IA64,
+}
+
+impl SystemInfo {
+    pub fn detect() -> Result<Self, &'static str> {
+        let version = get_windows_version()?;
+        let architecture = get_architecture()?;
+
+        Ok(SystemInfo {
+            version,
+            architecture,
+        })
+    }
 }
 
 fn get_windows_version() -> Result<WindowsNTVersion, &'static str> {
@@ -541,4 +495,50 @@ fn set_upper_filters(key: HKEY, filters: &[String]) -> Result<(), registry::Erro
 
 fn to_wide_string(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[derive(Debug)]
+pub enum InstallError {
+    SystemDetectionFailed(&'static str),
+    IoError(io::Error),
+    RegistryError(registry::Error),
+    DriverNotFound(String),
+    PermissionDenied,
+}
+
+impl Display for InstallError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InstallError::SystemDetectionFailed(msg) => {
+                write!(f, "System detection failed: {msg}")
+            }
+            InstallError::IoError(err) => write!(f, "I/O error: {err}"),
+            InstallError::RegistryError(err) => write!(f, "Registry error: {err}"),
+            InstallError::DriverNotFound(msg) => write!(f, "Driver file not found: {msg}"),
+            InstallError::PermissionDenied => {
+                write!(f, "Permission denied - administrator privileges required")
+            }
+        }
+    }
+}
+
+impl Error for InstallError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            InstallError::IoError(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<io::Error> for InstallError {
+    fn from(err: io::Error) -> Self {
+        InstallError::IoError(err)
+    }
+}
+
+impl From<registry::Error> for InstallError {
+    fn from(err: registry::Error) -> Self {
+        InstallError::RegistryError(err)
+    }
 }
