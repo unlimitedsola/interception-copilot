@@ -58,6 +58,7 @@ use windows_sys::core::PCWSTR;
 use windows_sys::w;
 
 mod registry;
+mod str;
 
 // Embedded driver files organized by type and system parameters
 macro_rules! embed_driver {
