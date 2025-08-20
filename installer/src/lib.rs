@@ -41,7 +41,7 @@ use std::error::Error;
 use std::fmt::Display;
 use std::mem::size_of;
 use std::path::Path;
-use std::{fmt, fs, io, ptr};
+use std::{fmt, fs, io, ptr, slice};
 use windows_sys::Win32::Foundation::{ERROR_SUCCESS, FALSE};
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS, REG_MULTI_SZ, REG_OPTION_NON_VOLATILE, REG_SZ,
@@ -439,7 +439,7 @@ fn get_upper_filters(key: HKEY) -> Result<Vec<String>, registry::Error> {
 
         // Convert buffer to Vec<String>
         let wide_chars = buffer.len() / 2;
-        let wide_slice = std::slice::from_raw_parts(buffer.as_ptr() as *const u16, wide_chars);
+        let wide_slice = slice::from_raw_parts(buffer.as_ptr() as *const u16, wide_chars);
 
         let mut filters = Vec::new();
         let mut start = 0;

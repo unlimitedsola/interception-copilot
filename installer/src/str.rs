@@ -1,6 +1,8 @@
+use std::slice;
+
 #[derive(Eq, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
-struct WCStr([u16]);
+pub struct WCStr([u16]);
 
 impl WCStr {
     /// # Safety
@@ -29,17 +31,21 @@ impl WCStr {
     pub const fn as_slice(&self) -> &[u16] {
         self.0.split_at(self.char_len()).0
     }
+
+    pub const fn as_bytes(&self) -> &[u8] {
+        unsafe { slice::from_raw_parts(self.0.as_ptr() as *const u8, self.bytes_len()) }
+    }
 }
 
 macro_rules! wcstr {
     ($s:expr) => {{
         const LEN: usize = $crate::str::utf16_len($s) + 1;
-        const BUF: &[u16; LEN] = {
+        const BUF: &[u16; LEN] = &{
             let mut buf = [0u16; LEN];
             let _ = $crate::str::encode_utf16($s, &mut buf);
-            &{ buf }
+            buf
         };
-        unsafe { WCStr::from_raw_unchecked(BUF) }
+        unsafe { $crate::str::WCStr::from_raw_unchecked(BUF) }
     }};
 }
 
@@ -80,7 +86,7 @@ const fn next_char(bytes: &mut &[u8]) -> Option<char> {
     let mut ch = utf8_acc_cont_byte(init, y);
     if x >= 0xE0 {
         // [[x y z] w] case
-        // 5th bit in 0xE0 .. 0xEF is always clear, so `init` is still valid
+        // 5th bit in 0xE0..0xEF is always clear, so `init` is still valid
         let Some(z) = next(bytes) else {
             return None;
         };

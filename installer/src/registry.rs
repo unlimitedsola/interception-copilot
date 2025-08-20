@@ -3,14 +3,17 @@
 //! The `PCWSTR` pointers in this module always assume that the pointer is valid for reads
 //! up until and including the next `\0`. This is a common requirement for Windows API
 //! functions that deal with wide strings.
+
+use crate::str::WCStr;
 use std::fmt::Display;
 use std::num::NonZeroU32;
-use std::{error, fmt, ptr};
+use std::{error, fmt, ptr, result};
 use windows_sys::Win32::Foundation::WIN32_ERROR;
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_CLASSES_ROOT, HKEY_CURRENT_CONFIG, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE,
-    HKEY_USERS, REG_DWORD, REG_OPEN_CREATE_OPTIONS, REG_QWORD, REG_SAM_FLAGS, REG_VALUE_TYPE,
-    RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegDeleteValueW, RegOpenKeyExW, RegSetValueExW,
+    HKEY_USERS, REG_DWORD, REG_OPEN_CREATE_OPTIONS, REG_QWORD, REG_SAM_FLAGS, REG_SZ,
+    REG_VALUE_TYPE, RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegDeleteValueW, RegOpenKeyExW,
+    RegSetValueExW,
 };
 use windows_sys::core::PCWSTR;
 
@@ -155,7 +158,15 @@ impl RegValue for u64 {
     }
 }
 
-type Result<T = (), E = Error> = core::result::Result<T, E>;
+impl RegValue for &WCStr {
+    const VALUE_TYPE: REG_VALUE_TYPE = REG_SZ;
+
+    fn as_bytes(&self) -> impl AsRef<[u8]> {
+        WCStr::as_bytes(self)
+    }
+}
+
+type Result<T = (), E = Error> = result::Result<T, E>;
 
 const fn win32_result(result: WIN32_ERROR) -> Result {
     match NonZeroU32::new(result) {
