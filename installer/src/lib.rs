@@ -36,7 +36,8 @@
 //! - A system reboot is required after installation or uninstallation
 //! - Only works on Windows systems with appropriate driver files available
 
-use crate::registry::Key;
+use crate::registry::{Key, Value};
+use crate::wcstr::WCStr;
 use std::error::Error;
 use std::fmt::Display;
 use std::mem::size_of;
@@ -58,16 +59,7 @@ use windows_sys::core::PCWSTR;
 use windows_sys::w;
 
 mod registry;
-mod str;
-
-// Embedded driver files organized by type and system parameters
-macro_rules! embed_driver {
-    ($name:literal) => {
-        include_bytes!(concat!("../drivers/", $name, ".sys")).as_slice()
-    };
-}
-
-const DRIVERS_PATH: &str = r"C:\Windows\System32\drivers";
+mod wcstr;
 
 /// Represents the type of input device driver
 #[derive(Debug, Clone, Copy)]
@@ -83,18 +75,18 @@ pub const ALL_DRIVER_TYPES: &[DriverType] = &[DriverType::Keyboard, DriverType::
 
 impl DriverType {
     /// Returns the service name used in the Windows registry
-    pub const fn service_name(self) -> &'static str {
+    pub const fn service_name(self) -> &'static WCStr {
         match self {
-            Self::Keyboard => "keyboard",
-            Self::Mouse => "mouse",
+            Self::Keyboard => wcstr!("keyboard"),
+            Self::Mouse => wcstr!("mouse"),
         }
     }
 
     /// Returns the display name shown in Windows services
-    pub const fn display_name(self) -> PCWSTR {
+    pub const fn display_name(self) -> &'static WCStr {
         match self {
-            Self::Keyboard => w!("Keyboard Upper Filter Driver"),
-            Self::Mouse => w!("Mouse Upper Filter Driver"),
+            Self::Keyboard => wcstr!("Keyboard Upper Filter Driver"),
+            Self::Mouse => wcstr!("Mouse Upper Filter Driver"),
         }
     }
 
@@ -118,6 +110,8 @@ impl DriverType {
         }
     }
 }
+
+const DRIVERS_PATH: &str = r"C:\Windows\System32\drivers";
 
 impl DriverType {
     fn install_driver(self, system_info: &SystemInfo) -> Result<(), InstallError> {
@@ -172,7 +166,7 @@ impl DriverType {
                 REG_OPTION_NON_VOLATILE,
                 KEY_ALL_ACCESS,
             )?;
-            key.set_raw(w!("DisplayName"), REG_SZ, &[])?; //todo
+            key.set(w!("DisplayName"), self.display_name())?;
             key.set(w!("Type"), SERVICE_KERNEL_DRIVER)?;
             key.set(w!("ErrorControl"), SERVICE_ERROR_NORMAL)?;
             key.set(w!("Start"), SERVICE_DEMAND_START)?;
@@ -185,72 +179,57 @@ impl DriverType {
     }
 
     fn add_class_filter(self) -> Result<(), registry::Error> {
-        unsafe {
-            let mut key: HKEY = ptr::null_mut();
+        let key = self.open_class_key()?;
 
-            let result = RegOpenKeyExW(
-                HKEY_LOCAL_MACHINE,
-                self.class_key(),
-                0,
-                KEY_ALL_ACCESS,
-                &mut key,
-            );
+        let filters = unsafe { key.get(w!("UpperFilters"))? };
+        let Value::MultiString(mut filters) = filters else {
+            return Err(registry::Error::UNSUPPORTED_TYPE);
+        };
 
-            if result != ERROR_SUCCESS {
-                todo!()
-            }
-
-            // Get current UpperFilters value
-            let mut filters = get_upper_filters(key)?;
-
-            // Add our filter if not already present
-            let svc_name = self.service_name();
-            if !filters.iter().any(|f| f == svc_name) {
-                filters.push(svc_name.to_string());
-                set_upper_filters(key, &filters)?;
-            }
-
-            RegCloseKey(key);
+        // Add our filter if not already present
+        let svc_name = self.service_name();
+        if !filters.iter().any(|f| f.as_ref() == svc_name) {
+            filters.push(svc_name.into());
+            unsafe { key.set(w!("UpperFilters"), filters.as_slice())? };
         }
-
         Ok(())
     }
 
     fn remove_class_filter(self) -> Result<(), registry::Error> {
-        unsafe {
-            let mut key: HKEY = ptr::null_mut();
+        let key = self.open_class_key()?;
 
-            let result = RegOpenKeyExW(
-                HKEY_LOCAL_MACHINE,
-                self.class_key(),
-                0,
-                KEY_ALL_ACCESS,
-                &mut key,
-            );
+        let filters = unsafe { key.get(w!("UpperFilters"))? };
+        let Value::MultiString(mut filters) = filters else {
+            return Err(registry::Error::UNSUPPORTED_TYPE);
+        };
 
-            if result != ERROR_SUCCESS {
-                todo!()
-            }
-
-            // Get current UpperFilters value
-            let mut filters = get_upper_filters(key)?;
-
-            // Remove our filter
-            filters.retain(|f| f != self.service_name());
-
-            if filters.is_empty() {
-                // Delete the UpperFilters value if no filters remain
-                RegDeleteValueW(key, w!("UpperFilters"));
-            } else {
-                set_upper_filters(key, &filters)?;
-            }
-
-            RegCloseKey(key);
+        // Add our filter if not already present
+        let svc_name = self.service_name();
+        filters.retain(|f| f.as_ref() != svc_name);
+        if filters.is_empty() {
+            // Delete the UpperFilters value if no filters remain
+            unsafe { key.delete_value(w!("UpperFilters"))? };
+        } else {
+            unsafe { key.set(w!("UpperFilters"), filters.as_slice())? };
         }
-
         Ok(())
     }
 
+    fn open_class_key(self) -> Result<Key, registry::Error> {
+        unsafe {
+            Key::LOCAL_MACHINE.open(self.class_key(), REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS)
+        }
+    }
+}
+
+// Embedded driver files organized by type and system parameters
+macro_rules! embed_driver {
+    ($name:literal) => {
+        include_bytes!(concat!("../drivers/", $name, ".sys")).as_slice()
+    };
+}
+
+impl DriverType {
     fn get_driver_binary(self, system_info: &SystemInfo) -> Result<&'static [u8], InstallError> {
         let driver_data = match (
             self,
@@ -403,101 +382,6 @@ fn get_architecture() -> Result<Architecture, &'static str> {
     }
 }
 
-fn get_upper_filters(key: HKEY) -> Result<Vec<String>, registry::Error> {
-    unsafe {
-        let mut buffer_size = 0u32;
-        let mut data_type = 0u32;
-
-        // Get the size of the data
-        let result = RegQueryValueExW(
-            key,
-            w!("UpperFilters"),
-            ptr::null(), // lpReserved - must be null (input parameter)
-            &mut data_type,
-            ptr::null_mut(), // lpData - can be null when querying size (output parameter)
-            &mut buffer_size,
-        );
-
-        if result != ERROR_SUCCESS || data_type != REG_MULTI_SZ {
-            // No existing UpperFilters or wrong type, return empty vector
-            return Ok(Vec::new());
-        }
-
-        let mut buffer = vec![0u8; buffer_size as usize];
-        let result = RegQueryValueExW(
-            key,
-            w!("UpperFilters"),
-            ptr::null(), // lpReserved - must be null (input parameter)
-            &mut data_type,
-            buffer.as_mut_ptr(),
-            &mut buffer_size,
-        );
-
-        if result != ERROR_SUCCESS {
-            todo!()
-        }
-
-        // Convert buffer to Vec<String>
-        let wide_chars = buffer.len() / 2;
-        let wide_slice = slice::from_raw_parts(buffer.as_ptr() as *const u16, wide_chars);
-
-        let mut filters = Vec::new();
-        let mut start = 0;
-
-        for (i, &ch) in wide_slice.iter().enumerate() {
-            if ch == 0 {
-                if i > start {
-                    let filter_slice = &wide_slice[start..i];
-                    if let Ok(filter) = String::from_utf16(filter_slice)
-                        && !filter.is_empty()
-                    {
-                        filters.push(filter);
-                    }
-                }
-                start = i + 1;
-                if start >= wide_slice.len() || wide_slice[start] == 0 {
-                    break;
-                }
-            }
-        }
-
-        Ok(filters)
-    }
-}
-
-fn set_upper_filters(key: HKEY, filters: &[String]) -> Result<(), registry::Error> {
-    // Convert to wide multi-string format
-    let mut wide_data = Vec::new();
-
-    for filter in filters {
-        let wide_filter = to_wide_string(filter);
-        wide_data.extend_from_slice(&wide_filter[..wide_filter.len() - 1]); // exclude null terminator
-        wide_data.push(0); // add separator
-    }
-    wide_data.push(0); // add final null terminator
-
-    unsafe {
-        let result = RegSetValueExW(
-            key,
-            w!("UpperFilters"),
-            0,
-            REG_MULTI_SZ,
-            wide_data.as_ptr() as *const u8,
-            (wide_data.len() * 2) as u32,
-        );
-
-        if result != ERROR_SUCCESS {
-            todo!();
-        }
-    }
-
-    Ok(())
-}
-
-fn to_wide_string(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
 #[derive(Debug)]
 pub enum InstallError {
     SystemDetectionFailed(&'static str),
@@ -510,13 +394,13 @@ pub enum InstallError {
 impl Display for InstallError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            InstallError::SystemDetectionFailed(msg) => {
+            Self::SystemDetectionFailed(msg) => {
                 write!(f, "System detection failed: {msg}")
             }
-            InstallError::IoError(err) => write!(f, "I/O error: {err}"),
-            InstallError::RegistryError(err) => write!(f, "Registry error: {err}"),
-            InstallError::DriverNotFound(msg) => write!(f, "Driver file not found: {msg}"),
-            InstallError::PermissionDenied => {
+            Self::IoError(err) => write!(f, "I/O error: {err}"),
+            Self::RegistryError(err) => write!(f, "Registry error: {err}"),
+            Self::DriverNotFound(msg) => write!(f, "Driver file not found: {msg}"),
+            Self::PermissionDenied => {
                 write!(f, "Permission denied - administrator privileges required")
             }
         }
@@ -526,7 +410,9 @@ impl Display for InstallError {
 impl Error for InstallError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            InstallError::IoError(err) => Some(err),
+            Self::IoError(err) => Some(err),
+            Self::RegistryError(err) => Some(err),
+
             _ => None,
         }
     }
@@ -534,12 +420,12 @@ impl Error for InstallError {
 
 impl From<io::Error> for InstallError {
     fn from(err: io::Error) -> Self {
-        InstallError::IoError(err)
+        Self::IoError(err)
     }
 }
 
 impl From<registry::Error> for InstallError {
     fn from(err: registry::Error) -> Self {
-        InstallError::RegistryError(err)
+        Self::RegistryError(err)
     }
 }

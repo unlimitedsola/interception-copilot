@@ -4,16 +4,20 @@
 //! up until and including the next `\0`. This is a common requirement for Windows API
 //! functions that deal with wide strings.
 
-use crate::str::WCStr;
+use crate::wcstr::{NotNulTerminatedError, WCStr};
+use std::array::TryFromSliceError;
 use std::fmt::Display;
-use std::num::NonZeroU32;
+use std::num::{NonZero, NonZeroU32};
 use std::{error, fmt, ptr, result};
-use windows_sys::Win32::Foundation::WIN32_ERROR;
+use windows_sys::Win32::Foundation::{
+    ERROR_INDIGENOUS_TYPE, ERROR_INVALID_DATA, ERROR_MAPPED_ALIGNMENT,
+    ERROR_OFFSET_ALIGNMENT_VIOLATION, ERROR_UNSUPPORTED_TYPE, WIN32_ERROR,
+};
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_CLASSES_ROOT, HKEY_CURRENT_CONFIG, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE,
-    HKEY_USERS, REG_DWORD, REG_OPEN_CREATE_OPTIONS, REG_QWORD, REG_SAM_FLAGS, REG_SZ,
+    HKEY_USERS, REG_DWORD, REG_MULTI_SZ, REG_OPEN_CREATE_OPTIONS, REG_QWORD, REG_SAM_FLAGS, REG_SZ,
     REG_VALUE_TYPE, RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegDeleteValueW, RegOpenKeyExW,
-    RegSetValueExW,
+    RegQueryValueExW, RegSetValueExW,
 };
 use windows_sys::core::PCWSTR;
 
@@ -82,6 +86,57 @@ impl Key {
     }
 }
 
+/// Getters
+impl Key {
+    /// # Safety
+    ///
+    /// The `PCWSTR` pointer needs to be valid for reads up until and including the next `\0`.
+    pub unsafe fn get_raw(&self, name: PCWSTR) -> Result<(REG_VALUE_TYPE, Vec<u8>)> {
+        let mut value_type = 0;
+        let mut data_len = 0;
+
+        // query size
+        let res = unsafe {
+            RegQueryValueExW(
+                self.0,
+                name,
+                ptr::null(),
+                &mut value_type,
+                ptr::null_mut(),
+                &mut data_len,
+            )
+        };
+        win32_result(res)?;
+
+        // allocate buffer and query again
+        // on all windows platforms, the allocated buffer is guaranteed to be aligned
+        // to the minimum alignment of a `u16`, thus we can safely use `u8` as the type
+        // for the buffer for both `REG_SZ` and `REG_MULTI_SZ` values.
+        let mut data = vec![0u8; data_len as usize];
+        let res = unsafe {
+            RegQueryValueExW(
+                self.0,
+                name,
+                ptr::null(),
+                &mut value_type,
+                data.as_mut_ptr(),
+                &mut data_len,
+            )
+        };
+        data.truncate(data_len as usize);
+
+        win32_result(res).map(|_| (value_type, data))
+    }
+
+    /// # Safety
+    ///
+    /// The `PCWSTR` pointer needs to be valid for reads up until and including the next `\0`.
+    pub unsafe fn get(&self, name: PCWSTR) -> Result<Value> {
+        let (value_type, data) = unsafe { self.get_raw(name) }?;
+        Value::from_bytes(value_type, &data)
+    }
+}
+
 /// Setters
 impl Key {
     /// # Safety
@@ -104,8 +159,8 @@ impl Key {
     /// # Safety
     ///
     /// The `PCWSTR` pointer needs to be valid for reads up until and including the next `\0`.
-    pub unsafe fn set<V: RegValue>(&self, name: PCWSTR, value: V) -> Result {
-        unsafe { self.set_raw(name, V::VALUE_TYPE, value.as_bytes().as_ref()) }
+    pub unsafe fn set<V: IntoValue>(&self, name: PCWSTR, value: V) -> Result {
+        unsafe { self.set_raw(name, V::VALUE_TYPE, value.into_bytes().as_ref()) }
     }
 }
 
@@ -136,34 +191,99 @@ impl Drop for Key {
     }
 }
 
-pub trait RegValue: Sized {
+pub trait IntoValue: Sized {
     const VALUE_TYPE: REG_VALUE_TYPE;
 
-    fn as_bytes(&self) -> impl AsRef<[u8]>;
+    fn into_bytes(self) -> impl AsRef<[u8]>;
 }
 
-impl RegValue for u32 {
+impl IntoValue for u32 {
     const VALUE_TYPE: REG_VALUE_TYPE = REG_DWORD;
 
-    fn as_bytes(&self) -> impl AsRef<[u8]> {
+    fn into_bytes(self) -> impl AsRef<[u8]> {
         self.to_le_bytes()
     }
 }
 
-impl RegValue for u64 {
+impl IntoValue for u64 {
     const VALUE_TYPE: REG_VALUE_TYPE = REG_QWORD;
 
-    fn as_bytes(&self) -> impl AsRef<[u8]> {
+    fn into_bytes(self) -> impl AsRef<[u8]> {
         self.to_le_bytes()
     }
 }
 
-impl RegValue for &WCStr {
+impl IntoValue for &WCStr {
     const VALUE_TYPE: REG_VALUE_TYPE = REG_SZ;
 
-    fn as_bytes(&self) -> impl AsRef<[u8]> {
+    fn into_bytes(self) -> impl AsRef<[u8]> {
         WCStr::as_bytes(self)
     }
+}
+
+impl<S: AsRef<WCStr>> IntoValue for &[S] {
+    const VALUE_TYPE: REG_VALUE_TYPE = REG_MULTI_SZ;
+
+    fn into_bytes(self) -> impl AsRef<[u8]> {
+        let mut bytes = Vec::new();
+        for w_str in self {
+            bytes.extend_from_slice(WCStr::as_bytes(w_str.as_ref()));
+            bytes.extend_from_slice(&[0, 0]); // null terminator for each string
+        }
+        bytes.extend_from_slice(&[0, 0]); // final null terminator for the multi-string
+        bytes
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Value {
+    U32(u32),
+    U64(u64),
+    String(Box<WCStr>),
+    MultiString(Vec<Box<WCStr>>),
+}
+
+impl Value {
+    fn from_bytes(value_type: REG_VALUE_TYPE, bytes: &[u8]) -> Result<Self> {
+        match value_type {
+            REG_DWORD => Ok(Value::U32(u32::from_le_bytes(bytes.try_into()?))),
+            REG_QWORD => Ok(Value::U64(u64::from_le_bytes(bytes.try_into()?))),
+            REG_SZ => {
+                let wide = to_u16_slice(bytes)?;
+                Ok(Value::String(WCStr::try_from_slice(wide)?.into()))
+            }
+            REG_MULTI_SZ => {
+                let wide = to_u16_slice(bytes)?;
+                Ok(Value::MultiString(parse_multi_string(wide)?))
+            }
+            _ => Err(Error::UNSUPPORTED_TYPE),
+        }
+    }
+}
+
+fn to_u16_slice(bytes: &[u8]) -> Result<&[u16]> {
+    match unsafe { bytes.align_to() } {
+        ([], v, []) => Ok(v),
+        _ => Err(Error::MAPPED_ALIGNMENT),
+    }
+}
+
+fn parse_multi_string(wide: &[u16]) -> Result<Vec<Box<WCStr>>> {
+    if wide.is_empty() || wide.last().copied() != Some(0) {
+        return Err(Error::INVALID_DATA);
+    }
+
+    let mut values = Vec::new();
+
+    for x in wide.split_inclusive(|&c| c == 0) {
+        if x.is_empty() {
+            continue;
+        }
+        let w_str = WCStr::try_from_slice(x)?;
+        values.push(w_str.into());
+    }
+
+    Ok(values)
 }
 
 type Result<T = (), E = Error> = result::Result<T, E>;
@@ -175,12 +295,25 @@ const fn win32_result(result: WIN32_ERROR) -> Result {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Error(NonZeroU32);
 
 const _: () = {
     ["Result is niche optimized"][size_of::<Result>() - size_of::<WIN32_ERROR>()];
 };
+
+impl Error {
+    pub const INVALID_DATA: Error = Error::from_win32(ERROR_INVALID_DATA);
+    pub const MAPPED_ALIGNMENT: Error = Error::from_win32(ERROR_MAPPED_ALIGNMENT);
+    pub const UNSUPPORTED_TYPE: Error = Error::from_win32(ERROR_UNSUPPORTED_TYPE);
+
+    const fn from_win32(code: WIN32_ERROR) -> Self {
+        match NonZeroU32::new(code) {
+            Some(v) => Error(v),
+            None => panic!("Cannot create Error from zero value"),
+        }
+    }
+}
 
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -189,3 +322,47 @@ impl Display for Error {
 }
 
 impl error::Error for Error {}
+
+impl From<TryFromSliceError> for Error {
+    fn from(_: TryFromSliceError) -> Self {
+        Error::INVALID_DATA
+    }
+}
+
+impl From<NotNulTerminatedError> for Error {
+    fn from(_: NotNulTerminatedError) -> Self {
+        Error::INVALID_DATA
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_windows_min_align() {
+        // Verify that all allocated buffers are aligned to the minimum alignment of a `u16`.
+        for size in (2..=64).step_by(2) {
+            let value = vec![0u8; size];
+            match unsafe { value.align_to::<u16>() } {
+                ([], _, []) => {}
+                _ => {
+                    panic!("Value of size {} is not aligned", size);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_multi_string_parsing() {
+        let wide = [
+            0x48, 0x65, 0x6C, 0x6C, 0x6F, 0, 0x57, 0x6F, 0x72, 0x6C, 0x64, 0, 0,
+        ];
+        let result = parse_multi_string(&wide).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].char_len(), 5);
+        assert_eq!(result[1].char_len(), 5);
+        assert_eq!(result[0].as_slice(), &wide[..6]);
+        assert_eq!(result[1].as_slice(), &wide[6..12]);
+    }
+}
