@@ -25,6 +25,7 @@ use windows_sys::core::PCWSTR;
 pub struct Key(HKEY);
 
 /// Predefined registry keys.
+#[allow(dead_code)]
 impl Key {
     /// The predefined `HKEY_CLASSES_ROOT` registry key.
     pub const CLASSES_ROOT: &'static Key = &Key(HKEY_CLASSES_ROOT);
@@ -234,6 +235,7 @@ impl<S: AsRef<WCStr>> IntoValue for &[S] {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum Value {
     U32(u32),
@@ -274,12 +276,17 @@ fn parse_multi_string(wide: &[u16]) -> Result<Vec<Box<WCStr>>> {
 
     let mut values = Vec::new();
 
-    for x in wide.split_inclusive(|&c| c == 0) {
-        if x.is_empty() {
-            continue;
+    let mut start = 0;
+    for (i, &c) in wide.iter().enumerate() {
+        if c == 0 {
+            if start < i {
+                let w_str = WCStr::try_from_slice(&wide[start..=i])?;
+                values.push(w_str.into());
+                start = i + 1; // Move past the null terminator
+            } else {
+                break;
+            }
         }
-        let w_str = WCStr::try_from_slice(x)?;
-        values.push(w_str.into());
     }
 
     Ok(values)
@@ -361,7 +368,7 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].char_len(), 5);
         assert_eq!(result[1].char_len(), 5);
-        assert_eq!(result[0].as_slice(), &wide[..6]);
-        assert_eq!(result[1].as_slice(), &wide[6..12]);
+        assert_eq!(result[0].as_wide(), &wide[..5]);
+        assert_eq!(result[1].as_wide(), &wide[6..11]);
     }
 }

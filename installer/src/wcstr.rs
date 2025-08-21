@@ -29,7 +29,7 @@ impl WCStr {
 
 impl Debug for WCStr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        for c in char::decode_utf16(self.as_slice().iter().copied()) {
+        for c in char::decode_utf16(self.as_wide().iter().copied()) {
             f.write_char(c.unwrap_or(REPLACEMENT_CHARACTER))?
         }
         Ok(())
@@ -63,7 +63,7 @@ impl WCStr {
     }
 
     /// Returns the wide string as a slice of `u16`, excluding the null terminator.
-    pub const fn as_slice(&self) -> &[u16] {
+    pub const fn as_wide(&self) -> &[u16] {
         self.0.split_at(self.char_len()).0
     }
 
