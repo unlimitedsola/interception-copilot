@@ -7,11 +7,10 @@
 use crate::wcstr::{NotNulTerminatedError, WCStr};
 use std::array::TryFromSliceError;
 use std::fmt::Display;
-use std::num::{NonZero, NonZeroU32};
+use std::num::NonZeroU32;
 use std::{error, fmt, ptr, result};
 use windows_sys::Win32::Foundation::{
-    ERROR_INDIGENOUS_TYPE, ERROR_INVALID_DATA, ERROR_MAPPED_ALIGNMENT,
-    ERROR_OFFSET_ALIGNMENT_VIOLATION, ERROR_UNSUPPORTED_TYPE, WIN32_ERROR,
+    ERROR_INVALID_DATA, ERROR_MAPPED_ALIGNMENT, ERROR_UNSUPPORTED_TYPE, WIN32_ERROR,
 };
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_CLASSES_ROOT, HKEY_CURRENT_CONFIG, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE,

@@ -42,11 +42,10 @@ use std::error::Error;
 use std::fmt::Display;
 use std::mem::size_of;
 use std::path::Path;
-use std::{fmt, fs, io, ptr, slice};
-use windows_sys::Win32::Foundation::{ERROR_SUCCESS, FALSE};
+use std::{fmt, fs, io};
+use windows_sys::Win32::Foundation::FALSE;
 use windows_sys::Win32::System::Registry::{
-    HKEY, HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS, REG_MULTI_SZ, REG_OPTION_NON_VOLATILE, REG_SZ,
-    RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
+    KEY_ALL_ACCESS, REG_OPTION_NON_VOLATILE,
 };
 use windows_sys::Win32::System::Services::{
     SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
