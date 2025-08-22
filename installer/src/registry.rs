@@ -177,14 +177,6 @@ impl Key {
         let res = unsafe { RegDeleteTreeW(self.0, path) };
         win32_result(res)
     }
-
-    /// # Safety
-    ///
-    /// The `PCWSTR` pointer needs to be valid for reads up until and including the next `\0`.
-    pub unsafe fn delete_value(&self, name: PCWSTR) -> Result {
-        let res = unsafe { RegDeleteValueW(self.0, name) };
-        win32_result(res)
-    }
 }
 
 impl Drop for Key {

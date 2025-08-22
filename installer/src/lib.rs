@@ -43,7 +43,6 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::fmt::Display;
 use std::os::windows::ffi::OsStringExt;
-use std::path::Path;
 use std::{fmt, fs, io, ptr};
 use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_DELAY_UNTIL_REBOOT, MoveFileExW};
 use windows_sys::Win32::System::Registry::{KEY_ALL_ACCESS, REG_OPTION_NON_VOLATILE};
