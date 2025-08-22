@@ -48,14 +48,12 @@ use windows_sys::Win32::System::Registry::{KEY_ALL_ACCESS, REG_OPTION_NON_VOLATI
 use windows_sys::Win32::System::Services::{
     SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
 };
-use windows_sys::Win32::System::SystemInformation::{
-    GetSystemInfo, GetVersionExW, OSVERSIONINFOW, PROCESSOR_ARCHITECTURE_AMD64,
-    PROCESSOR_ARCHITECTURE_IA64, PROCESSOR_ARCHITECTURE_INTEL, SYSTEM_INFO,
-};
+
 use windows_sys::core::PCWSTR;
 use windows_sys::w;
 
 mod registry;
+mod sysinfo;
 mod wcstr;
 
 /// Represents the type of input device driver
@@ -311,77 +309,6 @@ pub fn uninstall() -> Result<(), InstallError> {
     println!("IMPORTANT: You must reboot your system for the changes to take effect.");
 
     Ok(())
-}
-
-#[derive(Debug)]
-pub struct SystemInfo {
-    pub version: NTVersion,
-    pub architecture: Architecture,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct NTVersion {
-    pub major: u32,
-    pub minor: u32,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Architecture {
-    X86,
-    AMD64,
-    IA64,
-}
-
-impl SystemInfo {
-    pub fn detect() -> Result<Self, InstallError> {
-        let version = get_windows_version()?;
-        let architecture = get_architecture()?;
-
-        Ok(SystemInfo {
-            version,
-            architecture,
-        })
-    }
-}
-
-fn get_windows_version() -> Result<NTVersion, InstallError> {
-    unsafe {
-        let mut version_info = OSVERSIONINFOW {
-            dwOSVersionInfoSize: size_of::<OSVERSIONINFOW>() as u32,
-            ..Default::default()
-        };
-
-        if GetVersionExW(&mut version_info) == FALSE {
-            return Err(InstallError::SystemDetection(
-                "Failed to get Windows version",
-            ));
-        }
-
-        Ok(NTVersion {
-            major: version_info.dwMajorVersion,
-            minor: version_info.dwMinorVersion,
-        })
-    }
-}
-
-fn get_architecture() -> Result<Architecture, InstallError> {
-    unsafe {
-        let mut system_info = SYSTEM_INFO::default();
-        GetSystemInfo(&mut system_info);
-
-        let architecture = match system_info.Anonymous.Anonymous.wProcessorArchitecture {
-            PROCESSOR_ARCHITECTURE_INTEL => Architecture::X86,
-            PROCESSOR_ARCHITECTURE_AMD64 => Architecture::AMD64,
-            PROCESSOR_ARCHITECTURE_IA64 => Architecture::IA64,
-            _ => {
-                return Err(InstallError::SystemDetection(
-                    "Unsupported processor architecture",
-                ));
-            }
-        };
-
-        Ok(architecture)
-    }
 }
 
 #[derive(Debug)]
