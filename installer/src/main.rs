@@ -1,36 +1,29 @@
 use std::env;
-use std::process;
 
 use interception_installer::{install, uninstall};
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
         print_usage();
-        return;
+        return Ok(());
     }
 
     match args[1].as_str() {
         "install" => {
-            if let Err(e) = install() {
-                eprintln!("Installation failed: {e:?}");
-                process::exit(1);
-            }
+            install()?;
             println!("Installation completed successfully.");
         }
         "uninstall" => {
-            if let Err(e) = uninstall() {
-                eprintln!("Uninstallation failed: {e:?}");
-                process::exit(1);
-            }
+            uninstall()?;
             println!("Uninstallation completed successfully.");
         }
         _ => {
             print_usage();
-            process::exit(1);
         }
     }
+    Ok(())
 }
 
 fn print_usage() {

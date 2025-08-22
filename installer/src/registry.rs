@@ -11,13 +11,14 @@ use std::fmt::Display;
 use std::num::NonZeroU32;
 use std::{error, fmt, ptr, result};
 use windows_sys::Win32::Foundation::{
-    ERROR_INVALID_DATA, ERROR_MAPPED_ALIGNMENT, ERROR_UNSUPPORTED_TYPE, WIN32_ERROR,
+    ERROR_FILE_NOT_FOUND, ERROR_INVALID_DATA, ERROR_MAPPED_ALIGNMENT, ERROR_UNSUPPORTED_TYPE,
+    WIN32_ERROR,
 };
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_CLASSES_ROOT, HKEY_CURRENT_CONFIG, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE,
     HKEY_USERS, REG_DWORD, REG_MULTI_SZ, REG_OPEN_CREATE_OPTIONS, REG_QWORD, REG_SAM_FLAGS, REG_SZ,
-    REG_VALUE_TYPE, RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegDeleteValueW, RegOpenKeyExW,
-    RegQueryValueExW, RegSetValueExW,
+    REG_VALUE_TYPE, RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegDeleteTreeW, RegDeleteValueW,
+    RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
 };
 use windows_sys::core::PCWSTR;
 
@@ -173,7 +174,7 @@ impl Key {
     ///
     /// The `PCWSTR` pointer needs to be valid for reads up until and including the next `\0`.
     pub unsafe fn delete_key(&self, path: PCWSTR) -> Result {
-        let res = unsafe { RegDeleteKeyW(self.0, path) };
+        let res = unsafe { RegDeleteTreeW(self.0, path) };
         win32_result(res)
     }
 
@@ -231,9 +232,9 @@ impl<S: AsRef<WCStr>> IntoValue for &[S] {
         let mut bytes = Vec::new();
         for w_str in self {
             bytes.extend_from_slice(WCStr::as_bytes(w_str.as_ref()));
-            bytes.extend_from_slice(&0u16.to_le_bytes()); // null terminator for each string
         }
-        bytes.extend_from_slice(&0u16.to_le_bytes()); // final null terminator for the multi-string
+        // final null terminator for the multi-string
+        bytes.extend_from_slice(&0u16.to_le_bytes());
         bytes
     }
 }
@@ -306,7 +307,7 @@ const fn win32_result(result: WIN32_ERROR) -> Result {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Error(NonZeroU32);
 
 const _: () = {
@@ -314,6 +315,7 @@ const _: () = {
 };
 
 impl Error {
+    pub const FILE_NOT_FOUND: Error = Error::from_win32(ERROR_FILE_NOT_FOUND);
     pub const INVALID_DATA: Error = Error::from_win32(ERROR_INVALID_DATA);
     pub const MAPPED_ALIGNMENT: Error = Error::from_win32(ERROR_MAPPED_ALIGNMENT);
     pub const UNSUPPORTED_TYPE: Error = Error::from_win32(ERROR_UNSUPPORTED_TYPE);
@@ -375,5 +377,12 @@ mod tests {
         assert_eq!(result[1].char_len(), 5);
         assert_eq!(result[0].as_wide(), &wide[..5]);
         assert_eq!(result[1].as_wide(), &wide[6..11]);
+    }
+
+    #[test]
+    fn test_multi_string_into_bytes() {
+        let empty: Vec<Box<WCStr>> = Vec::new();
+        let bytes = IntoValue::into_bytes(&empty[..]);
+        assert_eq!(bytes.as_ref(), &[0, 0]);
     }
 }

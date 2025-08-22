@@ -36,20 +36,22 @@
 //! - A system reboot is required after installation or uninstallation
 //! - Only works on Windows systems with appropriate driver files available
 
+use crate::registry::{Key, Value};
+use crate::sysinfo::{Architecture, SystemInfo};
+use crate::wcstr::WCStr;
 use std::error::Error;
+use std::ffi::OsString;
 use std::fmt::Display;
+use std::os::windows::ffi::OsStringExt;
 use std::path::Path;
-use std::{fmt, fs, io};
+use std::{fmt, fs, io, ptr};
+use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_DELAY_UNTIL_REBOOT, MoveFileExW};
 use windows_sys::Win32::System::Registry::{KEY_ALL_ACCESS, REG_OPTION_NON_VOLATILE};
 use windows_sys::Win32::System::Services::{
     SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
 };
 use windows_sys::core::PCWSTR;
 use windows_sys::w;
-
-use crate::registry::{Key, Value};
-use crate::sysinfo::{Architecture, SystemInfo};
-use crate::wcstr::WCStr;
 
 mod registry;
 mod sysinfo;
@@ -73,6 +75,13 @@ impl DriverType {
         match self {
             Self::Keyboard => wcstr!("keyboard"),
             Self::Mouse => wcstr!("mouse"),
+        }
+    }
+
+    pub const fn driver_path(self) -> &'static WCStr {
+        match self {
+            Self::Keyboard => wcstr!(r"C:\Windows\System32\drivers\keyboard.sys"),
+            Self::Mouse => wcstr!(r"C:\Windows\System32\drivers\mouse.sys"),
         }
     }
 
@@ -105,38 +114,28 @@ impl DriverType {
     }
 }
 
-const DRIVERS_PATH: &str = r"C:\Windows\System32\drivers";
-
 impl DriverType {
-    fn install_driver(self, system_info: &SystemInfo) -> Result<(), InstallError> {
-        // Get embedded driver data directly
+    fn install(self, system_info: &SystemInfo) -> Result<(), InstallError> {
         let driver_data = self.get_driver_binary(system_info)?;
+        let path = OsString::from_wide(self.driver_path().as_wide());
+        fs::write(path, driver_data)?;
 
-        // Target filename and path
-        let target_filename = format!("{}.sys", self.service_name());
-        let target_path = Path::new(DRIVERS_PATH).join(&target_filename);
-
-        // Write driver file to system directory
-        fs::write(&target_path, driver_data)?;
-
-        // Install registry service
         self.install_service()?;
-
         Ok(())
     }
 
-    fn uninstall_driver(self) -> Result<(), InstallError> {
-        // Remove registry entries
-        self.uninstall_service().map_err(InstallError::Registry)?;
+    fn uninstall(self) -> Result<(), InstallError> {
+        self.uninstall_service()?;
 
-        // Remove driver file from system directory
-        let target_filename = format!("{}.sys", self.service_name());
-        let target_path = Path::new(DRIVERS_PATH).join(&target_filename);
-
-        if target_path.exists() {
-            fs::remove_file(&target_path)?;
-        }
-
+        // Remove the driver file on next reboot
+        // Ignore errors, as the file may not exist
+        let _ = unsafe {
+            MoveFileExW(
+                self.driver_path().as_ptr(),
+                ptr::null(),
+                MOVEFILE_DELAY_UNTIL_REBOOT,
+            )
+        };
         Ok(())
     }
 
@@ -168,7 +167,15 @@ impl DriverType {
     }
 
     fn delete_service(self) -> Result<(), registry::Error> {
-        unsafe { Key::LOCAL_MACHINE.delete_key(self.service_key()) }
+        let res = unsafe { Key::LOCAL_MACHINE.delete_key(self.service_key()) };
+        if let Err(err) = res
+            && err == registry::Error::FILE_NOT_FOUND
+        {
+            // ignore if the key does not exist
+            Ok(())
+        } else {
+            res
+        }
     }
 
     fn add_class_filter(self) -> Result<(), registry::Error> {
@@ -199,12 +206,7 @@ impl DriverType {
         // Add our filter if not already present
         let svc_name = self.service_name();
         filters.retain(|f| f.as_ref() != svc_name);
-        if filters.is_empty() {
-            // Delete the UpperFilters value if no filters remain
-            unsafe { key.delete_value(w!("UpperFilters"))? };
-        } else {
-            unsafe { key.set(w!("UpperFilters"), filters.as_slice())? };
-        }
+        unsafe { key.set(w!("UpperFilters"), filters.as_slice())? };
         Ok(())
     }
 
@@ -289,7 +291,7 @@ pub fn install() -> Result<(), InstallError> {
     // Install all drivers
     for &driver_type in ALL_DRIVER_TYPES {
         println!("Installing {} driver...", driver_type.service_name());
-        driver_type.install_driver(&system_info)?;
+        driver_type.install(&system_info)?;
     }
 
     println!("Driver installation completed successfully.");
@@ -312,7 +314,7 @@ pub fn uninstall() -> Result<(), InstallError> {
     // Uninstall all drivers
     for &driver_type in ALL_DRIVER_TYPES {
         println!("Removing {} driver...", driver_type.service_name());
-        driver_type.uninstall_driver()?;
+        driver_type.uninstall()?;
     }
 
     println!("Driver uninstallation completed successfully.");
