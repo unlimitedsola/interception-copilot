@@ -14,14 +14,14 @@ fn main() {
     match args[1].as_str() {
         "install" => {
             if let Err(e) = install() {
-                eprintln!("Installation failed: {e}");
+                eprintln!("Installation failed: {e:?}");
                 process::exit(1);
             }
             println!("Installation completed successfully.");
         }
         "uninstall" => {
             if let Err(e) = uninstall() {
-                eprintln!("Uninstallation failed: {e}");
+                eprintln!("Uninstallation failed: {e:?}");
                 process::exit(1);
             }
             println!("Uninstallation completed successfully.");
