@@ -1,9 +1,6 @@
 use std::fmt::Display;
-use std::num::NonZeroU32;
 use std::{error, fmt, result};
-use windows_sys::Win32::Foundation::{
-    ERROR_INVALID_DATA, ERROR_MAPPED_ALIGNMENT, ERROR_UNSUPPORTED_TYPE, FALSE, WIN32_ERROR,
-};
+use windows_sys::Win32::Foundation::FALSE;
 use windows_sys::Win32::System::SystemInformation::{
     GetSystemInfo, GetVersionExW, OSVERSIONINFOW, PROCESSOR_ARCHITECTURE_AMD64,
     PROCESSOR_ARCHITECTURE_IA64, PROCESSOR_ARCHITECTURE_INTEL, SYSTEM_INFO,
