@@ -6,7 +6,6 @@
 //! up until and including the next `\0`. This is a common requirement for Windows API
 //! functions that deal with wide strings.
 
-use crate::wcstr::{NotNulTerminatedError, WCStr};
 use std::array::TryFromSliceError;
 use std::fmt::Display;
 use std::num::NonZeroU32;
@@ -21,6 +20,8 @@ use windows_sys::Win32::System::Registry::{
     RegQueryValueExW, RegSetValueExW,
 };
 use windows_sys::core::PCWSTR;
+
+use crate::wcstr::{NotNulTerminatedError, WCStr};
 
 #[repr(transparent)]
 #[derive(Debug)]

@@ -36,8 +36,6 @@
 //! - A system reboot is required after installation or uninstallation
 //! - Only works on Windows systems with appropriate driver files available
 
-use crate::registry::{Key, Value};
-use crate::wcstr::WCStr;
 use std::error::Error;
 use std::fmt::Display;
 use std::mem::size_of;
@@ -48,9 +46,12 @@ use windows_sys::Win32::System::Registry::{KEY_ALL_ACCESS, REG_OPTION_NON_VOLATI
 use windows_sys::Win32::System::Services::{
     SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
 };
-
 use windows_sys::core::PCWSTR;
 use windows_sys::w;
+
+use crate::registry::{Key, Value};
+use crate::sysinfo::{Architecture, SystemInfo};
+use crate::wcstr::WCStr;
 
 mod registry;
 mod sysinfo;
@@ -313,7 +314,7 @@ pub fn uninstall() -> Result<(), InstallError> {
 
 #[derive(Debug)]
 pub enum InstallError {
-    SystemDetection(&'static str),
+    SystemDetection(sysinfo::Error),
     Io(io::Error),
     Registry(registry::Error),
     Driver(String),
@@ -323,8 +324,8 @@ pub enum InstallError {
 impl Display for InstallError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::SystemDetection(msg) => {
-                write!(f, "System detection failed: {msg}")
+            Self::SystemDetection(err) => {
+                write!(f, "System detection failed: {err}")
             }
             Self::Io(err) => write!(f, "I/O error: {err}"),
             Self::Registry(err) => write!(f, "Registry error: {err}"),
@@ -339,9 +340,9 @@ impl Display for InstallError {
 impl Error for InstallError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::SystemDetection(err) => Some(err),
             Self::Io(err) => Some(err),
             Self::Registry(err) => Some(err),
-
             _ => None,
         }
     }
@@ -356,5 +357,11 @@ impl From<io::Error> for InstallError {
 impl From<registry::Error> for InstallError {
     fn from(err: registry::Error) -> Self {
         Self::Registry(err)
+    }
+}
+
+impl From<sysinfo::Error> for InstallError {
+    fn from(err: sysinfo::Error) -> Self {
+        Self::SystemDetection(err)
     }
 }
