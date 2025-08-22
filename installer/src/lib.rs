@@ -318,7 +318,6 @@ pub enum InstallError {
     Io(io::Error),
     Registry(registry::Error),
     Driver(String),
-    Permission,
 }
 
 impl Display for InstallError {
@@ -330,9 +329,6 @@ impl Display for InstallError {
             Self::Io(err) => write!(f, "I/O error: {err}"),
             Self::Registry(err) => write!(f, "Registry error: {err}"),
             Self::Driver(msg) => write!(f, "Driver file not found: {msg}"),
-            Self::Permission => {
-                write!(f, "Permission denied - administrator privileges required")
-            }
         }
     }
 }
