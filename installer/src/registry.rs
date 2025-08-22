@@ -1,3 +1,5 @@
+//! Minimalistic Windows Registry API wrapper.
+//!
 //! # Safety
 //!
 //! The `PCWSTR` pointers in this module always assume that the pointer is valid for reads
@@ -228,9 +230,9 @@ impl<S: AsRef<WCStr>> IntoValue for &[S] {
         let mut bytes = Vec::new();
         for w_str in self {
             bytes.extend_from_slice(WCStr::as_bytes(w_str.as_ref()));
-            bytes.extend_from_slice(&[0, 0]); // null terminator for each string
+            bytes.extend_from_slice(&0u16.to_le_bytes()); // null terminator for each string
         }
-        bytes.extend_from_slice(&[0, 0]); // final null terminator for the multi-string
+        bytes.extend_from_slice(&0u16.to_le_bytes()); // final null terminator for the multi-string
         bytes
     }
 }
@@ -270,6 +272,8 @@ fn to_u16_slice(bytes: &[u8]) -> Result<&[u16]> {
 }
 
 fn parse_multi_string(wide: &[u16]) -> Result<Vec<Box<WCStr>>> {
+    // Multi-string value is a sequence of wide strings, each terminated by a null character,
+    // and the entire sequence is also terminated by an additional null character.
     if wide.is_empty() || wide.last().copied() != Some(0) {
         return Err(Error::INVALID_DATA);
     }

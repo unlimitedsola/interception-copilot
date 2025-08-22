@@ -44,9 +44,7 @@ use std::mem::size_of;
 use std::path::Path;
 use std::{fmt, fs, io};
 use windows_sys::Win32::Foundation::FALSE;
-use windows_sys::Win32::System::Registry::{
-    KEY_ALL_ACCESS, REG_OPTION_NON_VOLATILE,
-};
+use windows_sys::Win32::System::Registry::{KEY_ALL_ACCESS, REG_OPTION_NON_VOLATILE};
 use windows_sys::Win32::System::Services::{
     SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, SERVICE_KERNEL_DRIVER,
 };
@@ -132,8 +130,7 @@ impl DriverType {
 
     fn uninstall_driver(self) -> Result<(), InstallError> {
         // Remove registry entries
-        self.uninstall_service()
-            .map_err(InstallError::RegistryError)?;
+        self.uninstall_service().map_err(InstallError::Registry)?;
 
         // Remove driver file from system directory
         let target_filename = format!("{}.sys", self.service_name());
@@ -258,7 +255,7 @@ impl DriverType {
             (DriverType::Mouse, (6, 1), Architecture::IA64) => embed_driver!("MOUNT61I64"),
             (DriverType::Mouse, (6, 1), Architecture::X86) => embed_driver!("MOUNT61X86"),
             _ => {
-                return Err(InstallError::DriverNotFound(format!(
+                return Err(InstallError::Driver(format!(
                     "No driver available for {self:?} on {:?} {:?}",
                     system_info.version, system_info.architecture
                 )));
@@ -278,7 +275,7 @@ impl DriverType {
 /// Returns an error if any step fails. A system reboot is required after successful installation.
 pub fn install() -> Result<(), InstallError> {
     println!("Detecting system configuration...");
-    let system_info = SystemInfo::detect().map_err(InstallError::SystemDetectionFailed)?;
+    let system_info = SystemInfo::detect()?;
 
     // Install all drivers
     for &driver_type in ALL_DRIVER_TYPES {
@@ -318,12 +315,12 @@ pub fn uninstall() -> Result<(), InstallError> {
 
 #[derive(Debug)]
 pub struct SystemInfo {
-    pub version: WindowsNTVersion,
+    pub version: NTVersion,
     pub architecture: Architecture,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct WindowsNTVersion {
+pub struct NTVersion {
     pub major: u32,
     pub minor: u32,
 }
@@ -336,7 +333,7 @@ pub enum Architecture {
 }
 
 impl SystemInfo {
-    pub fn detect() -> Result<Self, &'static str> {
+    pub fn detect() -> Result<Self, InstallError> {
         let version = get_windows_version()?;
         let architecture = get_architecture()?;
 
@@ -347,7 +344,7 @@ impl SystemInfo {
     }
 }
 
-fn get_windows_version() -> Result<WindowsNTVersion, &'static str> {
+fn get_windows_version() -> Result<NTVersion, InstallError> {
     unsafe {
         let mut version_info = OSVERSIONINFOW {
             dwOSVersionInfoSize: size_of::<OSVERSIONINFOW>() as u32,
@@ -355,17 +352,19 @@ fn get_windows_version() -> Result<WindowsNTVersion, &'static str> {
         };
 
         if GetVersionExW(&mut version_info) == FALSE {
-            return Err("Failed to get Windows version");
+            return Err(InstallError::SystemDetection(
+                "Failed to get Windows version",
+            ));
         }
 
-        Ok(WindowsNTVersion {
+        Ok(NTVersion {
             major: version_info.dwMajorVersion,
             minor: version_info.dwMinorVersion,
         })
     }
 }
 
-fn get_architecture() -> Result<Architecture, &'static str> {
+fn get_architecture() -> Result<Architecture, InstallError> {
     unsafe {
         let mut system_info = SYSTEM_INFO::default();
         GetSystemInfo(&mut system_info);
@@ -374,7 +373,11 @@ fn get_architecture() -> Result<Architecture, &'static str> {
             PROCESSOR_ARCHITECTURE_INTEL => Architecture::X86,
             PROCESSOR_ARCHITECTURE_AMD64 => Architecture::AMD64,
             PROCESSOR_ARCHITECTURE_IA64 => Architecture::IA64,
-            _ => return Err("Unsupported processor architecture"),
+            _ => {
+                return Err(InstallError::SystemDetection(
+                    "Unsupported processor architecture",
+                ));
+            }
         };
 
         Ok(architecture)
@@ -383,23 +386,23 @@ fn get_architecture() -> Result<Architecture, &'static str> {
 
 #[derive(Debug)]
 pub enum InstallError {
-    SystemDetectionFailed(&'static str),
-    IoError(io::Error),
-    RegistryError(registry::Error),
-    DriverNotFound(String),
-    PermissionDenied,
+    SystemDetection(&'static str),
+    Io(io::Error),
+    Registry(registry::Error),
+    Driver(String),
+    Permission,
 }
 
 impl Display for InstallError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::SystemDetectionFailed(msg) => {
+            Self::SystemDetection(msg) => {
                 write!(f, "System detection failed: {msg}")
             }
-            Self::IoError(err) => write!(f, "I/O error: {err}"),
-            Self::RegistryError(err) => write!(f, "Registry error: {err}"),
-            Self::DriverNotFound(msg) => write!(f, "Driver file not found: {msg}"),
-            Self::PermissionDenied => {
+            Self::Io(err) => write!(f, "I/O error: {err}"),
+            Self::Registry(err) => write!(f, "Registry error: {err}"),
+            Self::Driver(msg) => write!(f, "Driver file not found: {msg}"),
+            Self::Permission => {
                 write!(f, "Permission denied - administrator privileges required")
             }
         }
@@ -409,8 +412,8 @@ impl Display for InstallError {
 impl Error for InstallError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::IoError(err) => Some(err),
-            Self::RegistryError(err) => Some(err),
+            Self::Io(err) => Some(err),
+            Self::Registry(err) => Some(err),
 
             _ => None,
         }
@@ -419,12 +422,12 @@ impl Error for InstallError {
 
 impl From<io::Error> for InstallError {
     fn from(err: io::Error) -> Self {
-        Self::IoError(err)
+        Self::Io(err)
     }
 }
 
 impl From<registry::Error> for InstallError {
     fn from(err: registry::Error) -> Self {
-        Self::RegistryError(err)
+        Self::Registry(err)
     }
 }
