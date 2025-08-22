@@ -1,6 +1,5 @@
+use interception_installer::DriverType;
 use std::env;
-
-use interception_installer::{install, uninstall};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
@@ -12,12 +11,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match args[1].as_str() {
         "install" => {
-            install()?;
-            println!("Installation completed successfully.");
+            for driver_type in DriverType::ALL {
+                println!("Installing {driver_type:?} driver...");
+                driver_type.install()?;
+            }
+
+            println!("Driver installation completed successfully.");
+            println!();
+            println!("IMPORTANT: You must reboot your system for the drivers to take effect.");
         }
         "uninstall" => {
-            uninstall()?;
-            println!("Uninstallation completed successfully.");
+            println!("Uninstalling Interception drivers...");
+
+            for driver_type in DriverType::ALL {
+                println!("Removing {driver_type:?} driver...");
+                driver_type.uninstall()?;
+            }
+
+            println!("Driver uninstallation completed successfully.");
+            println!();
+            println!("IMPORTANT: You must reboot your system for the changes to take effect.");
         }
         _ => {
             print_usage();

@@ -12,33 +12,12 @@
 //! - Device class filter setup (UpperFilters registry entries)
 //! - Complete uninstallation support
 //!
-//! # Usage
-//!
-//! ```no_run
-//! use interception_installer::{install, uninstall};
-//!
-//! // Install drivers
-//! match install() {
-//!     Ok(()) => println!("Installation completed successfully"),
-//!     Err(e) => eprintln!("Installation failed: {}", e),
-//! }
-//!
-//! // Uninstall drivers
-//! match uninstall() {
-//!     Ok(()) => println!("Uninstallation completed successfully"),
-//!     Err(e) => eprintln!("Uninstallation failed: {}", e),
-//! }
-//! ```
-//!
 //! # Important Notes
 //!
 //! - This library requires administrator privileges on Windows
 //! - A system reboot is required after installation or uninstallation
 //! - Only works on Windows systems with appropriate driver files available
 
-use crate::registry::{Key, Value};
-use crate::sysinfo::{Architecture, SystemInfo};
-use crate::wcstr::WCStr;
 use std::error::Error;
 use std::ffi::OsString;
 use std::fmt::Display;
@@ -51,6 +30,10 @@ use windows_sys::Win32::System::Services::{
 };
 use windows_sys::core::PCWSTR;
 use windows_sys::w;
+
+use crate::registry::{Key, Value};
+use crate::sysinfo::{Architecture, SystemInfo};
+use crate::wcstr::WCStr;
 
 mod registry;
 mod sysinfo;
@@ -65,10 +48,9 @@ pub enum DriverType {
     Mouse,
 }
 
-/// All available driver types for iteration
-pub const ALL_DRIVER_TYPES: &[DriverType] = &[DriverType::Keyboard, DriverType::Mouse];
-
 impl DriverType {
+    pub const ALL: [Self; 2] = [Self::Keyboard, Self::Mouse];
+
     /// Returns the service name used in the Windows registry
     pub const fn service_name(self) -> &'static WCStr {
         match self {
@@ -114,8 +96,9 @@ impl DriverType {
 }
 
 impl DriverType {
-    fn install(self, system_info: &SystemInfo) -> Result<(), InstallError> {
-        let driver_data = self.get_driver_binary(system_info)?;
+    pub fn install(self) -> Result<(), InstallError> {
+        let sys_info = SystemInfo::detect()?;
+        let driver_data = self.get_driver_binary(sys_info)?;
         let path = OsString::from_wide(self.driver_path().as_wide());
         fs::write(path, driver_data)?;
 
@@ -123,7 +106,7 @@ impl DriverType {
         Ok(())
     }
 
-    fn uninstall(self) -> Result<(), InstallError> {
+    pub fn uninstall(self) -> Result<(), InstallError> {
         self.uninstall_service()?;
 
         // Remove the driver file on next reboot
@@ -188,7 +171,7 @@ impl DriverType {
         // Add our filter if not already present
         let svc_name = self.service_name();
         if !filters.iter().any(|f| f.as_ref() == svc_name) {
-            filters.push(svc_name.into());
+            filters.insert(0, svc_name.into());
             unsafe { key.set(w!("UpperFilters"), filters.as_slice())? };
         }
         Ok(())
@@ -217,7 +200,7 @@ impl DriverType {
 }
 
 impl DriverType {
-    fn get_driver_binary(self, sys: &SystemInfo) -> Result<&'static [u8], InstallError> {
+    fn get_driver_binary(self, sys: SystemInfo) -> Result<&'static [u8], InstallError> {
         struct DriverSet {
             keyboard: &'static [u8],
             mouse: &'static [u8],
@@ -239,30 +222,30 @@ impl DriverType {
         }
 
         let driver_set = match (sys.version.major, sys.version.minor, sys.architecture) {
-            // Windows 5.1 (XP)
-            #[cfg(feature = "unsupported-platforms")]
+            // Windows 5.1 (XP 32-bit)
+            #[cfg(feature = "legacy-platforms")]
             (5, 1, Architecture::X86) => drivers!("NT51X86"),
-            // Windows 5.2 (2003)
-            #[cfg(feature = "unsupported-platforms")]
+            // Windows 5.2 (XP x64, Server 2003)
+            #[cfg(feature = "legacy-platforms")]
             (5, 2, Architecture::AMD64) => drivers!("NT52A64"),
-            #[cfg(feature = "unsupported-platforms")]
+            #[cfg(feature = "legacy-platforms")]
             (5, 2, Architecture::IA64) => drivers!("NT52I64"),
-            #[cfg(feature = "unsupported-platforms")]
+            #[cfg(feature = "legacy-platforms")]
             (5, 2, Architecture::X86) => drivers!("NT52X86"),
-            // Windows 6.0 (Vista)
-            #[cfg(feature = "unsupported-platforms")]
+            // Windows 6.0 (Vista, Server 2008)
+            #[cfg(feature = "legacy-platforms")]
             (6, 0, Architecture::AMD64) => drivers!("NT60A64"),
-            #[cfg(feature = "unsupported-platforms")]
+            #[cfg(feature = "legacy-platforms")]
             (6, 0, Architecture::IA64) => drivers!("NT60I64"),
-            #[cfg(feature = "unsupported-platforms")]
+            #[cfg(feature = "legacy-platforms")]
             (6, 0, Architecture::X86) => drivers!("NT60X86"),
-            // Windows 6.1+ (7+)
+            // Windows 6.1+ (7+, Server 2008 R2+)
             (6, 1.., Architecture::AMD64) | (10.., _, Architecture::AMD64) => drivers!("NT61A64"),
-            #[cfg(feature = "unsupported-platforms")]
+            #[cfg(feature = "legacy-platforms")]
             (6, 1.., Architecture::IA64) | (10.., _, Architecture::IA64) => drivers!("NT61I64"),
             (6, 1.., Architecture::X86) | (10.., _, Architecture::X86) => drivers!("NT61X86"),
             _ => {
-                return Err(InstallError::UnsupportedSystem(*sys));
+                return Err(InstallError::UnsupportedSystem(sys));
             }
         };
 
@@ -273,54 +256,6 @@ impl DriverType {
 
         Ok(driver_data)
     }
-}
-
-/// Install all Interception drivers
-///
-/// This will:
-/// 1. Detect the system configuration (Windows version and architecture)
-/// 2. Install both keyboard and mouse drivers
-/// 3. Configure registry entries and class filters
-///
-/// Returns an error if any step fails. A system reboot is required after successful installation.
-pub fn install() -> Result<(), InstallError> {
-    println!("Detecting system configuration...");
-    let system_info = SystemInfo::detect()?;
-
-    // Install all drivers
-    for &driver_type in ALL_DRIVER_TYPES {
-        println!("Installing {} driver...", driver_type.service_name());
-        driver_type.install(&system_info)?;
-    }
-
-    println!("Driver installation completed successfully.");
-    println!();
-    println!("IMPORTANT: You must reboot your system for the drivers to take effect.");
-
-    Ok(())
-}
-
-/// Uninstall all Interception drivers
-///
-/// This will:
-/// 1. Remove registry entries and class filters for both keyboard and mouse
-/// 2. Delete driver files from the system directory
-///
-/// Returns an error if any step fails. A system reboot is required after successful uninstallation.
-pub fn uninstall() -> Result<(), InstallError> {
-    println!("Uninstalling Interception drivers...");
-
-    // Uninstall all drivers
-    for &driver_type in ALL_DRIVER_TYPES {
-        println!("Removing {} driver...", driver_type.service_name());
-        driver_type.uninstall()?;
-    }
-
-    println!("Driver uninstallation completed successfully.");
-    println!();
-    println!("IMPORTANT: You must reboot your system for the changes to take effect.");
-
-    Ok(())
 }
 
 #[derive(Debug)]

@@ -11,7 +11,7 @@ name = "interception-installer"
 path = "src/main.rs"
 
 [features]
-unsupported-platforms = []
+legacy-platforms = []
 
 [dependencies]
 windows-sys = { version = "0.60.2", features = [
