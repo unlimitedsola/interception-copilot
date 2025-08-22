@@ -215,49 +215,61 @@ impl DriverType {
     }
 }
 
-// Embedded driver files organized by type and system parameters
-macro_rules! embed_driver {
-    ($name:literal) => {
-        include_bytes!(concat!("../drivers/", $name, ".sys")).as_slice()
-    };
-}
-
 impl DriverType {
-    fn get_driver_binary(self, system_info: &SystemInfo) -> Result<&'static [u8], InstallError> {
-        let driver_data = match (
-            self,
-            (system_info.version.major, system_info.version.minor),
-            system_info.architecture,
-        ) {
-            // Keyboard drivers
-            (DriverType::Keyboard, (5, 1), Architecture::X86) => embed_driver!("KBDNT51X86"),
-            (DriverType::Keyboard, (5, 2), Architecture::AMD64) => embed_driver!("KBDNT52A64"),
-            (DriverType::Keyboard, (5, 2), Architecture::IA64) => embed_driver!("KBDNT52I64"),
-            (DriverType::Keyboard, (5, 2), Architecture::X86) => embed_driver!("KBDNT52X86"),
-            (DriverType::Keyboard, (6, 0), Architecture::AMD64) => embed_driver!("KBDNT60A64"),
-            (DriverType::Keyboard, (6, 0), Architecture::IA64) => embed_driver!("KBDNT60I64"),
-            (DriverType::Keyboard, (6, 0), Architecture::X86) => embed_driver!("KBDNT60X86"),
-            (DriverType::Keyboard, (6, 1), Architecture::AMD64) => embed_driver!("KBDNT61A64"),
-            (DriverType::Keyboard, (6, 1), Architecture::IA64) => embed_driver!("KBDNT61I64"),
-            (DriverType::Keyboard, (6, 1), Architecture::X86) => embed_driver!("KBDNT61X86"),
-            // Mouse drivers
-            (DriverType::Mouse, (5, 1), Architecture::X86) => embed_driver!("MOUNT51X86"),
-            (DriverType::Mouse, (5, 2), Architecture::AMD64) => embed_driver!("MOUNT52A64"),
-            (DriverType::Mouse, (5, 2), Architecture::IA64) => embed_driver!("MOUNT52I64"),
-            (DriverType::Mouse, (5, 2), Architecture::X86) => embed_driver!("MOUNT52X86"),
-            (DriverType::Mouse, (6, 0), Architecture::AMD64) => embed_driver!("MOUNT60A64"),
-            (DriverType::Mouse, (6, 0), Architecture::IA64) => embed_driver!("MOUNT60I64"),
-            (DriverType::Mouse, (6, 0), Architecture::X86) => embed_driver!("MOUNT60X86"),
-            (DriverType::Mouse, (6, 1), Architecture::AMD64) => embed_driver!("MOUNT61A64"),
-            (DriverType::Mouse, (6, 1), Architecture::IA64) => embed_driver!("MOUNT61I64"),
-            (DriverType::Mouse, (6, 1), Architecture::X86) => embed_driver!("MOUNT61X86"),
+    fn get_driver_binary(self, sys: &SystemInfo) -> Result<&'static [u8], InstallError> {
+        struct DriverSet {
+            keyboard: &'static [u8],
+            mouse: &'static [u8],
+        }
+
+        macro_rules! embed_driver {
+            ($name:expr) => {
+                include_bytes!(concat!("drivers/", $name, ".sys")).as_slice()
+            };
+        }
+
+        macro_rules! drivers {
+            ($ver_arch:literal) => {
+                &DriverSet {
+                    keyboard: embed_driver!(concat!("KBD", $ver_arch)),
+                    mouse: embed_driver!(concat!("MOU", $ver_arch)),
+                }
+            };
+        }
+
+        let driver_set = match (sys.version.major, sys.version.minor, sys.architecture) {
+            // Windows 5.1 (XP)
+            #[cfg(feature = "unsupported-platforms")]
+            (5, 1, Architecture::X86) => drivers!("NT51X86"),
+            // Windows 5.2 (2003)
+            #[cfg(feature = "unsupported-platforms")]
+            (5, 2, Architecture::AMD64) => drivers!("NT52A64"),
+            #[cfg(feature = "unsupported-platforms")]
+            (5, 2, Architecture::IA64) => drivers!("NT52I64"),
+            #[cfg(feature = "unsupported-platforms")]
+            (5, 2, Architecture::X86) => drivers!("NT52X86"),
+            // Windows 6.0 (Vista)
+            #[cfg(feature = "unsupported-platforms")]
+            (6, 0, Architecture::AMD64) => drivers!("NT60A64"),
+            #[cfg(feature = "unsupported-platforms")]
+            (6, 0, Architecture::IA64) => drivers!("NT60I64"),
+            #[cfg(feature = "unsupported-platforms")]
+            (6, 0, Architecture::X86) => drivers!("NT60X86"),
+            // Windows 6.1+ (7+)
+            (6, 1.., Architecture::AMD64) | (10.., _, Architecture::AMD64) => drivers!("NT61A64"),
+            #[cfg(feature = "unsupported-platforms")]
+            (6, 1.., Architecture::IA64) | (10.., _, Architecture::IA64) => drivers!("NT61I64"),
+            (6, 1.., Architecture::X86) | (10.., _, Architecture::X86) => drivers!("NT61X86"),
             _ => {
-                return Err(InstallError::Driver(format!(
-                    "No driver available for {self:?} on {:?} {:?}",
-                    system_info.version, system_info.architecture
-                )));
+                return Err(InstallError::UnsupportedSystem(*sys));
             }
         };
+
+        let driver_data = match self {
+            DriverType::Keyboard => driver_set.keyboard,
+            DriverType::Mouse => driver_set.mouse,
+        };
+
         Ok(driver_data)
     }
 }
@@ -315,7 +327,7 @@ pub enum InstallError {
     SystemDetection(sysinfo::Error),
     Io(io::Error),
     Registry(registry::Error),
-    Driver(String),
+    UnsupportedSystem(SystemInfo),
 }
 
 impl Display for InstallError {
@@ -326,7 +338,9 @@ impl Display for InstallError {
             }
             Self::Io(err) => write!(f, "I/O error: {err}"),
             Self::Registry(err) => write!(f, "Registry error: {err}"),
-            Self::Driver(msg) => write!(f, "Driver file not found: {msg}"),
+            Self::UnsupportedSystem(sys) => {
+                write!(f, "Unsupported system configuration: {sys:?}")
+            }
         }
     }
 }
