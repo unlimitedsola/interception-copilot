@@ -3,14 +3,10 @@ use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
+    let args: Vec<&str> = args.iter().skip(1).map(String::as_str).collect();
 
-    if args.len() < 2 {
-        print_usage();
-        return Ok(());
-    }
-
-    match args[1].as_str() {
-        "install" => {
+    match args.as_slice() {
+        ["install"] => {
             for driver_type in DriverType::ALL {
                 println!("Installing {driver_type:?} driver...");
                 driver_type.install()?;
@@ -20,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!();
             println!("IMPORTANT: You must reboot your system for the drivers to take effect.");
         }
-        "uninstall" => {
+        ["uninstall"] => {
             println!("Uninstalling Interception drivers...");
 
             for driver_type in DriverType::ALL {
