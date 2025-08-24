@@ -5,7 +5,7 @@
 //!
 //! **Note**: This requires the Interception driver to be installed on Windows.
 
-use interception::{Device, FILTER_MOUSE_ALL, Interception, KeyStroke, MouseStroke};
+use interception::{Device, FILTER_MOUSE_ALL, Interception, MouseStroke};
 
 #[cfg(windows)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
