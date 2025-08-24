@@ -5,7 +5,7 @@
 //!
 //! **Note**: This requires the Interception driver to be installed on Windows.
 
-use interception::{Device, FILTER_KEY_ALL, Interception, KEY_UP};
+use interception::{Device, FILTER_KEY_ALL, Interception, KEY_UP, KeyStroke};
 
 #[cfg(windows)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -37,6 +37,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let mut strokes = [KeyStroke::default(); 10];
+
     // Main event loop
     loop {
         // Wait for any device to have input available
@@ -49,9 +51,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         // Try to receive keyboard strokes from the device
-        let strokes = keyboard.receive(10)?;
+        let strokes = keyboard.receive(&mut strokes)?;
         if !strokes.is_empty() {
-            for stroke in &strokes {
+            for stroke in strokes.iter() {
                 let key_action = if stroke.state & KEY_UP != 0 {
                     "UP"
                 } else {
@@ -69,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Send the strokes back so they still work normally
-            keyboard.send(&strokes)?;
+            keyboard.send(strokes)?;
         }
     }
 }

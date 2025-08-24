@@ -10,7 +10,7 @@
 //!
 //! **Note**: This requires the Interception driver to be installed on Windows.
 
-use interception::{Device, FILTER_KEY_ALL, Interception, KEY_UP};
+use interception::{Device, FILTER_KEY_ALL, Interception, KEY_UP, KeyStroke};
 use std::env;
 
 /// Escape key scan code
@@ -44,6 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let mut strokes = [KeyStroke::default(); 10];
+
     // Main event loop
     loop {
         // Wait for any device to have input available
@@ -56,12 +58,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         // Try to receive keyboard strokes from the device
-        let strokes = keyboard.receive(10)?;
+        let strokes = keyboard.receive(&mut strokes)?;
         if !strokes.is_empty() {
             // Separate escape key events from other key events
-            let mut other_strokes = Vec::new();
+            let mut filtered = Vec::new();
 
-            for stroke in &strokes {
+            for stroke in strokes {
                 if stroke.code == SCANCODE_ESC {
                     // This is an escape key event - block it and log
                     let key_action = if stroke.state & KEY_UP != 0 {
@@ -75,13 +77,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Note: we don't add this stroke to other_strokes, effectively blocking it
                 } else {
                     // This is a non-escape key - allow it to pass through
-                    other_strokes.push(stroke.clone());
+                    filtered.push(*stroke);
                 }
             }
 
             // Send back all non-escape key strokes so they work normally
-            if !other_strokes.is_empty() {
-                keyboard.send(&other_strokes)?;
+            if !filtered.is_empty() {
+                keyboard.send(&filtered)?;
             }
         }
     }

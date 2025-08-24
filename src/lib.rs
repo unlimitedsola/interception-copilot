@@ -312,7 +312,7 @@ pub const FILTER_MOUSE_MOVE: MouseFilter = 0x1000;
 
 /// `KEYBOARD_INPUT_DATA` structure
 /// <https://learn.microsoft.com/en-us/windows/win32/api/ntddkbd/ns-ntddkbd-keyboard_input_data>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct KeyStroke {
     /// Device unit ID (internal use only)
@@ -379,7 +379,7 @@ impl KeyStroke {
 
 /// `MOUSE_INPUT_DATA` structure
 /// <https://learn.microsoft.com/en-us/windows/win32/api/ntddmou/ns-ntddmou-mouse_input_data>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct MouseStroke {
     /// Device unit ID (unused)
@@ -576,8 +576,11 @@ impl KeyboardDevice {
     }
 
     /// Receive keyboard strokes from this device
-    pub fn receive(&mut self, max_strokes: usize) -> Result<Vec<KeyStroke>> {
-        self.0.receive_strokes(max_strokes)
+    ///
+    /// Strokes buffer will be filled with received strokes, and the returned slice
+    /// will be a subslice of the input buffer containing only the received strokes.
+    pub fn receive<'a>(&mut self, strokes: &'a mut [KeyStroke]) -> Result<&'a mut [KeyStroke]> {
+        self.0.receive_strokes(strokes)
     }
 
     /// Get hardware ID for this keyboard device
@@ -648,8 +651,11 @@ impl MouseDevice {
     }
 
     /// Receive mouse strokes from this device
-    pub fn receive(&mut self, max_strokes: usize) -> Result<Vec<MouseStroke>> {
-        self.0.receive_strokes(max_strokes)
+    ///
+    /// Strokes buffer will be filled with received strokes, and the returned slice
+    /// will be a subslice of the input buffer containing only the received strokes.
+    pub fn receive<'a>(&mut self, strokes: &'a mut [MouseStroke]) -> Result<&'a mut [MouseStroke]> {
+        self.0.receive_strokes(strokes)
     }
 
     /// Get hardware ID for this mouse device
@@ -740,19 +746,19 @@ impl RawDevice {
     }
 
     /// Generic function to receive strokes from a device
-    fn receive_strokes<T: Stroke>(&mut self, max_strokes: usize) -> Result<Vec<T>> {
-        if max_strokes == 0 {
-            return Ok(Vec::new());
+    ///
+    /// Strokes buffer will be filled with received strokes, and the returned slice
+    /// will be a subslice of the input buffer containing only the received strokes.
+    fn receive_strokes<'a, T: Stroke>(&mut self, strokes: &'a mut [T]) -> Result<&'a mut [T]> {
+        if strokes.is_empty() {
+            return Ok(strokes);
         }
 
-        let mut raw_strokes: Vec<T> = vec![T::default(); max_strokes];
+        let bytes_read = self.0.ioctl_out(IOCTL_READ, strokes)?;
 
-        let strokes_read = self.0.ioctl_out(IOCTL_READ, raw_strokes.as_mut_slice())?;
+        let strokes_len = (bytes_read as usize) / size_of::<T>();
 
-        let strokes_count = (strokes_read as usize) / size_of::<T>();
-        raw_strokes.truncate(strokes_count);
-
-        Ok(raw_strokes)
+        Ok(&mut strokes[..strokes_len])
     }
 }
 

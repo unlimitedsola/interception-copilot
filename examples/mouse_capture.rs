@@ -5,7 +5,7 @@
 //!
 //! **Note**: This requires the Interception driver to be installed on Windows.
 
-use interception::{Device, FILTER_MOUSE_ALL, Interception};
+use interception::{Device, FILTER_MOUSE_ALL, Interception, KeyStroke, MouseStroke};
 
 #[cfg(windows)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -38,6 +38,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let mut strokes = [MouseStroke::default(); 10];
+
     // Main event loop
     loop {
         // Wait for any device to have input available
@@ -50,9 +52,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         // Try to receive keyboard strokes from the device
-        let strokes = mouse.receive(10)?;
+        let strokes = mouse.receive(&mut strokes)?;
         if !strokes.is_empty() {
-            for stroke in &strokes {
+            for stroke in strokes.iter() {
                 println!(
                     "{:02}: pos=({}, {}), state=0x{:04X}, flags=0x{:04X}, rolling={}",
                     device_index, stroke.x, stroke.y, stroke.state, stroke.flags, stroke.rolling
@@ -60,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Send the strokes back so they still work normally
-            mouse.send(&strokes)?;
+            mouse.send(strokes)?;
         }
     }
 }
