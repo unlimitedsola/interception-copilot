@@ -6,6 +6,7 @@
 //! **Note**: This requires the Interception driver to be installed on Windows.
 
 use interception::{Device, FILTER_MOUSE_ALL, Interception, MouseStroke};
+use std::ffi::OsString;
 
 #[cfg(windows)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,13 +28,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (i, device) in interception.devices_mut().iter_mut().enumerate() {
         let hw_id = device
             .get_hardware_id()
-            .unwrap_or_else(|_| String::from("Unknown"));
+            .unwrap_or_else(|_| OsString::from("Unknown"));
         match device {
             Device::Keyboard(_) => {
-                println!("  Keyboard {i}: {hw_id}");
+                println!("  Keyboard {i}: {hw_id:?}");
             }
             Device::Mouse(_) => {
-                println!("  Mouse {i}: {hw_id}");
+                println!("  Mouse {i}: {hw_id:?}");
             }
         }
     }

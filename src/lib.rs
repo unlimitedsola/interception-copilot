@@ -69,9 +69,10 @@
 #![cfg(windows)]
 
 use std::error::Error;
-use std::ffi::{c_int, c_long, c_short, c_uint, c_ulong, c_ushort, c_void};
+use std::ffi::{OsString, c_int, c_long, c_short, c_uint, c_ulong, c_ushort, c_void};
 use std::fmt::{Display, Formatter};
 use std::mem;
+use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 use std::time::Duration;
 use windows_sys::Win32::{
@@ -93,6 +94,7 @@ pub struct Interception {
 }
 
 impl Interception {
+    /// Will fail with `CreateFile(ERROR_FILE_NOT_FOUND)` error if the Interception driver is not installed.
     pub fn new() -> Result<Self> {
         let mut devices = Vec::new();
         let mut wait_handles = Vec::new();
@@ -507,7 +509,7 @@ impl Device {
         }
     }
 
-    pub fn get_hardware_id(&mut self) -> Result<String> {
+    pub fn get_hardware_id(&mut self) -> Result<OsString> {
         match self {
             Device::Keyboard(device) => device.get_hardware_id(),
             Device::Mouse(device) => device.get_hardware_id(),
@@ -584,7 +586,7 @@ impl KeyboardDevice {
     }
 
     /// Get hardware ID for this keyboard device
-    pub fn get_hardware_id(&mut self) -> Result<String> {
+    pub fn get_hardware_id(&mut self) -> Result<OsString> {
         self.0.get_hardware_id()
     }
 }
@@ -659,7 +661,7 @@ impl MouseDevice {
     }
 
     /// Get hardware ID for this mouse device
-    pub fn get_hardware_id(&mut self) -> Result<String> {
+    pub fn get_hardware_id(&mut self) -> Result<OsString> {
         self.0.get_hardware_id()
     }
 }
@@ -715,7 +717,7 @@ impl RawDevice {
     }
 
     /// Get hardware ID for this device
-    fn get_hardware_id(&mut self) -> Result<String> {
+    fn get_hardware_id(&mut self) -> Result<OsString> {
         // This should be large enough. `MAX_DEVICE_ID_LEN` is `200`.
         // Using u16 buffer directly since hardware IDs are UTF-16 strings
         let mut buf = vec![0u16; 256];
@@ -732,7 +734,8 @@ impl RawDevice {
             .strip_suffix(&[0])
             .expect("Buffer should end with null terminator");
 
-        Ok(String::from_utf16_lossy(w_str))
+        // Use `OsString` in case of ill-formed UTF-16 sequences
+        Ok(OsString::from_wide(w_str))
     }
 
     /// Generic function to send strokes to a device
